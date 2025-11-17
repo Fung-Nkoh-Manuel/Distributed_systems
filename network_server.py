@@ -209,3 +209,78 @@ def process_transfer():
         "status": transfer['status'],
         "completed": transfer['status'] == 'completed'
     })
+@app.route('/transfer/status/<file_id>', methods=['GET'])
+def get_transfer_status(file_id):
+    """Get status of a transfer"""
+    if file_id not in active_transfers:
+        return jsonify({"error": "Transfer not found"}), 404
+    
+    transfer = active_transfers[file_id]
+    progress = (transfer['completed_chunks'] / transfer['total_chunks']) * 100
+    
+    return jsonify({
+        "file_id": file_id,
+        "file_name": transfer['file_name'],
+        "status": transfer['status'],
+        "progress_percent": progress,
+        "completed_chunks": transfer['completed_chunks'],
+        "total_chunks": transfer['total_chunks'],
+        "source_node": transfer['source_node_id'],
+        "target_node": transfer['target_node_id']
+    })
+
+@app.route('/stats', methods=['GET'])
+def get_network_stats():
+    """Get overall network statistics"""
+    # Aggregate stats from all nodes
+    total_storage = 0
+    used_storage = 0
+    total_bandwidth = 0
+    
+    for node_id, url in nodes.items():
+        try:
+            storage_resp = requests.get(f"{url}/stats/storage", timeout=5)
+            if storage_resp.status_code == 200:
+                storage_data = storage_resp.json()
+                total_storage += storage_data['total_bytes']
+                used_storage += storage_data['used_bytes']
+            
+            network_resp = requests.get(f"{url}/stats/network", timeout=5)
+            if network_resp.status_code == 200:
+                network_data = network_resp.json()
+                total_bandwidth += network_data['max_bandwidth_bps']
+        except:
+            pass
+    
+    return jsonify({
+        "total_nodes": len(nodes),
+        "total_storage_bytes": total_storage,
+        "used_storage_bytes": used_storage,
+        "storage_utilization_percent": (used_storage / total_storage * 100) if total_storage > 0 else 0,
+        "total_bandwidth_bps": total_bandwidth,
+        "active_transfers": len([t for t in active_transfers.values() if t['status'] == 'in_progress']),
+        "completed_transfers": len([t for t in active_transfers.values() if t['status'] == 'completed'])
+    })
+
+@app.route('/tick', methods=['POST'])
+def tick():
+    """Reset network utilization on all nodes"""
+    for node_id, url in nodes.items():
+        try:
+            requests.post(f"{url}/tick", timeout=5)
+        except:
+            pass
+    
+    return jsonify({"success": True})
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='Storage Virtual Network Coordinator')
+    parser.add_argument('--port', type=int, default=5500, help='Server port')
+    parser.add_argument('--host', default='0.0.0.0', help='Server host')
+    
+    args = parser.parse_args()
+    
+    print(f"Starting network coordinator server")
+    print(f"Listening on {args.host}:{args.port}")
+    
+    app.run(host=args.host, port=args.port, debug=False)
