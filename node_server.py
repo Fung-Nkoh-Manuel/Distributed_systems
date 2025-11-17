@@ -88,3 +88,70 @@ def process_chunk():
         "completed": is_complete
     })
 
+@app.route('/transfer/status/<file_id>', methods=['GET'])
+def get_transfer_status(file_id):
+    """Get status of a file transfer"""
+    transfer = node.active_transfers.get(file_id) or node.stored_files.get(file_id)
+    
+    if not transfer:
+        return jsonify({"error": "Transfer not found"}), 404
+    
+    completed_chunks = sum(1 for c in transfer.chunks if c.status == TransferStatus.COMPLETED)
+    
+    return jsonify({
+        "file_id": transfer.file_id,
+        "file_name": transfer.file_name,
+        "status": transfer.status.name,
+        "total_chunks": len(transfer.chunks),
+        "completed_chunks": completed_chunks,
+        "progress_percent": (completed_chunks / len(transfer.chunks)) * 100
+    })
+
+@app.route('/stats/storage', methods=['GET'])
+def get_storage_stats():
+    """Get storage utilization statistics"""
+    return jsonify(node.get_storage_utilization())
+
+@app.route('/stats/network', methods=['GET'])
+def get_network_stats():
+    """Get network utilization statistics"""
+    return jsonify(node.get_network_utilization())
+
+@app.route('/stats/performance', methods=['GET'])
+def get_performance_stats():
+    """Get performance metrics"""
+    return jsonify(node.get_performance_metrics())
+
+@app.route('/tick', methods=['POST'])
+def tick():
+    """Reset network utilization for new simulation step"""
+    node.network_utilization = 0
+    return jsonify({"success": True})
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='Storage Virtual Node Server')
+    parser.add_argument('--node-id', required=True, help='Node identifier')
+    parser.add_argument('--cpu', type=int, default=4, help='CPU capacity (vCPUs)')
+    parser.add_argument('--memory', type=int, default=16, help='Memory capacity (GB)')
+    parser.add_argument('--storage', type=int, default=500, help='Storage capacity (GB)')
+    parser.add_argument('--bandwidth', type=int, default=1000, help='Bandwidth (Mbps)')
+    parser.add_argument('--port', type=int, default=5000, help='Server port')
+    parser.add_argument('--host', default='0.0.0.0', help='Server host')
+    
+    args = parser.parse_args()
+    
+    # Initialize the node
+    node = StorageVirtualNode(
+        node_id=args.node_id,
+        cpu_capacity=args.cpu,
+        memory_capacity=args.memory,
+        storage_capacity=args.storage,
+        bandwidth=args.bandwidth
+    )
+    
+    print(f"Starting node server: {args.node_id}")
+    print(f"CPU: {args.cpu} vCPUs, Memory: {args.memory}GB")
+    print(f"Storage: {args.storage}GB, Bandwidth: {args.bandwidth}Mbps")
+    print(f"Listening on {args.host}:{args.port}")
+    
+    app.run(host=args.host, port=args.port, debug=False)
