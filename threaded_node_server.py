@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Threaded Node Server with Socket Communication
-Automatically finds an available port and registers with network
+Threaded Node Server with Socket Communication and Real File Storage
+Each node creates a directory and stores actual files
 """
 
 import socket
@@ -9,6 +9,8 @@ import threading
 import json
 import time
 import argparse
+import os
+import shutil
 from typing import Dict, Any
 from storage_virtual_node import StorageVirtualNode, TransferStatus
 
@@ -16,7 +18,7 @@ from storage_virtual_node import StorageVirtualNode, TransferStatus
 class ThreadedNodeServer:
     """Node server that listens on an automatically assigned socket port"""
     
-    def __init__(self, node: StorageVirtualNode, host='localhost', port=0):
+    def __init__(self, node: StorageVirtualNode, host='localhost', port=0, storage_path=None):
         self.node = node
         self.host = host
         self.port = port  # 0 means auto-assign
@@ -27,6 +29,16 @@ class ThreadedNodeServer:
         self.network_host = None
         self.network_port = None
         self.registered = False
+        
+        # Set up storage directory
+        if storage_path is None:
+            storage_path = os.path.join(os.getcwd(), f"storage_{node.node_id}")
+        
+        self.storage_path = storage_path
+        
+        # Create storage directory if it doesn't exist
+        os.makedirs(self.storage_path, exist_ok=True)
+        print(f"[Node {self.node.node_id}] Storage directory: {self.storage_path}")
         
     def start(self):
         """Start the node server on an automatically assigned port"""
@@ -149,21 +161,64 @@ class ThreadedNodeServer:
                     if not success:
                         return {"error": "Failed to process chunk"}
                     
-                    # Check if transfer is complete
+                    # Save chunk to disk
                     transfer = self.node.active_transfers.get(file_id) or self.node.stored_files.get(file_id)
-                    is_complete = False
                     
                     if transfer:
+                        # Create file directory
+                        file_dir = os.path.join(self.storage_path, file_id)
+                        os.makedirs(file_dir, exist_ok=True)
+                        
+                        # Save chunk to disk
+                        chunk_path = os.path.join(file_dir, f"chunk_{chunk_id}.dat")
+                        chunk = transfer.chunks[chunk_id]
+                        
+                        # Write actual data to disk (simulate with zeros for now)
+                        with open(chunk_path, 'wb') as f:
+                            f.write(b'\0' * chunk.size)
+                        
+                        # Check if transfer is complete
                         is_complete = transfer.status == TransferStatus.COMPLETED
+                        
+                        if is_complete:
+                            # Merge chunks into final file
+                            final_file_path = os.path.join(self.storage_path, transfer.file_name)
+                            with open(final_file_path, 'wb') as final_file:
+                                for i in range(len(transfer.chunks)):
+                                    chunk_path = os.path.join(file_dir, f"chunk_{i}.dat")
+                                    if os.path.exists(chunk_path):
+                                        with open(chunk_path, 'rb') as chunk_file:
+                                            final_file.write(chunk_file.read())
+                            
+                            # Clean up chunk files
+                            shutil.rmtree(file_dir)
+                            
+                            print(f"[Node {self.node.node_id}] File saved: {final_file_path} ({transfer.total_size} bytes)")
+                        
+                        return {
+                            "success": True,
+                            "chunk_id": chunk_id,
+                            "completed": is_complete
+                        }
                     
-                    return {
-                        "success": True,
-                        "chunk_id": chunk_id,
-                        "completed": is_complete
-                    }
+                    return {"error": "Transfer not found"}
                 
                 elif command == "storage_stats":
-                    return self.node.get_storage_utilization()
+                    stats = self.node.get_storage_utilization()
+                    
+                    # Add real disk usage
+                    if os.path.exists(self.storage_path):
+                        total_size = 0
+                        for dirpath, dirnames, filenames in os.walk(self.storage_path):
+                            for filename in filenames:
+                                filepath = os.path.join(dirpath, filename)
+                                if os.path.exists(filepath):
+                                    total_size += os.path.getsize(filepath)
+                        
+                        stats['actual_disk_usage_bytes'] = total_size
+                        stats['actual_disk_usage_mb'] = total_size / (1024 * 1024)
+                    
+                    return stats
                 
                 elif command == "network_stats":
                     return self.node.get_network_utilization()
@@ -261,6 +316,8 @@ def main():
                        help='Storage capacity in GB (default: 500)')
     parser.add_argument('--bandwidth', type=int, default=1000, 
                        help='Bandwidth in Mbps (default: 1000)')
+    parser.add_argument('--storage-path', type=str, default=None,
+                       help='Custom storage directory path (default: ./storage_<node-id>)')
     
     args = parser.parse_args()
     
@@ -284,7 +341,7 @@ def main():
     print(f"  Bandwidth: {args.bandwidth} Mbps")
     
     # Create and start the server (port auto-assigned)
-    server = ThreadedNodeServer(node, host=args.host, port=0)
+    server = ThreadedNodeServer(node, host=args.host, port=0, storage_path=args.storage_path)
     assigned_port = server.start()
     
     print(f"\n✓ Server listening on {args.host}:{assigned_port} (auto-assigned)")

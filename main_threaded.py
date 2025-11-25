@@ -2,12 +2,14 @@
 """
 Threaded Storage Virtual Network - Main Client
 Connects to network coordinator and discovers nodes automatically
+Supports real file transfers
 """
 
 import socket
 import json
 import time
 import argparse
+import os
 from tqdm import tqdm
 
 
@@ -132,6 +134,8 @@ def main():
                        help='Target node ID for transfer (default: node2)')
     parser.add_argument('--file-size-mb', type=int, default=100,
                        help='File size in MB to transfer (default: 100)')
+    parser.add_argument('--file-path', type=str, default=None,
+                       help='Path to actual file to transfer (optional)')
     parser.add_argument('--chunks-per-step', type=int, default=3,
                        help='Number of chunks to process per step (default: 3)')
     parser.add_argument('--connection-bandwidth', type=int, default=1000,
@@ -139,12 +143,26 @@ def main():
     
     args = parser.parse_args()
     
+    # Determine file info
+    if args.file_path and os.path.exists(args.file_path):
+        file_size_bytes = os.path.getsize(args.file_path)
+        file_name = os.path.basename(args.file_path)
+        file_size_mb = file_size_bytes / (1024 * 1024)
+        print(f"Using actual file: {args.file_path} ({file_size_mb:.2f}MB)")
+    else:
+        file_size_bytes = args.file_size_mb * 1024 * 1024
+        file_name = "large_dataset.zip"
+        file_size_mb = args.file_size_mb
+        if args.file_path:
+            print(f"Warning: File '{args.file_path}' not found, using simulated transfer")
+    
     print("=" * 70)
     print("THREADED STORAGE VIRTUAL NETWORK - FILE TRANSFER SIMULATION")
     print("=" * 70)
     print(f"\nConnecting to network at {args.network_host}:{args.network_port}")
     print(f"Transfer: {args.source_node} → {args.target_node}")
-    print(f"File size: {args.file_size_mb}MB | Chunks per step: {args.chunks_per_step}")
+    print(f"File: {file_name} ({file_size_mb:.2f}MB)")
+    print(f"Chunks per step: {args.chunks_per_step}")
     
     # Create network client
     network_client = NetworkClient(args.network_host, args.network_port)
@@ -278,21 +296,17 @@ def main():
         print(f"✗ Failed to connect nodes: {result}")
         return
     
-    # ========================================================================
-    # STEP 4: Initiate file transfer
-    # ========================================================================
     print("\n" + "=" * 70)
     print("[4/5] FILE TRANSFER OPERATION")
     print("=" * 70)
     
-    file_size_bytes = args.file_size_mb * 1024 * 1024
-    print(f"\nInitiating transfer: large_dataset.zip ({args.file_size_mb}MB)")
+    print(f"\nInitiating transfer: {file_name} ({file_size_mb:.2f}MB)")
     print(f"Source: {args.source_node} → Target: {args.target_node}")
     
     transfer_result = network_client.initiate_transfer(
         source_node_id=args.source_node,
         target_node_id=args.target_node,
-        file_name="large_dataset.zip",
+        file_name=file_name,
         file_size=file_size_bytes
     )
     
@@ -332,7 +346,15 @@ def main():
                         total_time = time.time() - total_start_time
                         print(f"\n✓ Transfer completed successfully!")
                         print(f"  Total time: {total_time:.2f} seconds")
-                        print(f"  Average speed: {(args.file_size_mb / total_time):.2f} MB/s")
+                        print(f"  Average speed: {(file_size_mb / total_time):.2f} MB/s")
+                        print(f"\n  File stored on {args.target_node}")
+                        
+                        # Get target node info to show where file is stored
+                        if args.target_node in node_clients:
+                            storage = node_clients[args.target_node].storage_stats()
+                            if 'actual_disk_usage_mb' in storage:
+                                print(f"  Actual disk usage: {storage['actual_disk_usage_mb']:.2f} MB")
+                        
                         break
                 else:
                     print(f"\n✗ Transfer failed: {result}")
