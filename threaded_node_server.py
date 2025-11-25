@@ -24,6 +24,9 @@ class ThreadedNodeServer:
         self.running = False
         self.server_socket = None
         self.lock = threading.Lock()
+        self.network_host = None
+        self.network_port = None
+        self.registered = False
         
     def start(self):
         """Start the node server on an automatically assigned port"""
@@ -45,6 +48,11 @@ class ThreadedNodeServer:
     def stop(self):
         """Stop the node server"""
         self.running = False
+        
+        # Unregister from network before stopping
+        if self.registered and self.network_host and self.network_port:
+            self._unregister_from_network()
+        
         if self.server_socket:
             self.server_socket.close()
         print(f"[Node {self.node.node_id}] Server stopped")
@@ -175,6 +183,9 @@ class ThreadedNodeServer:
     
     def register_with_network(self, network_host, network_port):
         """Register this node with the network coordinator"""
+        self.network_host = network_host
+        self.network_port = network_port
+        
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.settimeout(10)
@@ -195,6 +206,7 @@ class ThreadedNodeServer:
             sock.close()
             
             if response.get('success'):
+                self.registered = True
                 print(f"[Node {self.node.node_id}] Successfully registered with network at {network_host}:{network_port}")
                 return True
             else:
@@ -204,6 +216,32 @@ class ThreadedNodeServer:
         except Exception as e:
             print(f"[Node {self.node.node_id}] Error registering with network: {e}")
             return False
+    
+    def _unregister_from_network(self):
+        """Unregister this node from the network coordinator"""
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(5)
+            sock.connect((self.network_host, self.network_port))
+            
+            request = {
+                "command": "unregister_node",
+                "args": {
+                    "node_id": self.node.node_id
+                }
+            }
+            
+            sock.sendall(json.dumps(request).encode('utf-8'))
+            data = sock.recv(4096)
+            response = json.loads(data.decode('utf-8'))
+            
+            sock.close()
+            
+            if response.get('success'):
+                print(f"[Node {self.node.node_id}] Successfully unregistered from network")
+            
+        except Exception as e:
+            print(f"[Node {self.node.node_id}] Error unregistering from network: {e}")
 
 
 def main():

@@ -143,6 +143,7 @@ def main():
     print("THREADED STORAGE VIRTUAL NETWORK - FILE TRANSFER SIMULATION")
     print("=" * 70)
     print(f"\nConnecting to network at {args.network_host}:{args.network_port}")
+    print(f"Transfer: {args.source_node} → {args.target_node}")
     print(f"File size: {args.file_size_mb}MB | Chunks per step: {args.chunks_per_step}")
     
     # Create network client
@@ -172,19 +173,58 @@ def main():
         print(f"  python threaded_node_server.py --node-id node2 --network-port {args.network_port}")
         return
     
-    print(f"✓ Found {len(registered_nodes)} registered node(s):")
-    for node_id, node_address in registered_nodes.items():
-        print(f"  • {node_id} at {node_address}")
+    # Parse node information (handle both dict and string formats)
+    nodes_info = {}
+    for node_id, node_data in registered_nodes.items():
+        if isinstance(node_data, dict):
+            # New format with status
+            nodes_info[node_id] = {
+                'address': node_data.get('address', ''),
+                'status': node_data.get('status', 'unknown')
+            }
+        else:
+            # Old format (just address string)
+            nodes_info[node_id] = {
+                'address': node_data,
+                'status': 'online'
+            }
     
-    # Check if required nodes exist
-    if args.source_node not in registered_nodes:
+    print(f"✓ Found {len(nodes_info)} registered node(s):")
+    online_count = 0
+    offline_count = 0
+    
+    for node_id, info in nodes_info.items():
+        status = info['status']
+        address = info['address']
+        status_symbol = "●" if status == "online" else "○"
+        status_text = "ONLINE" if status == "online" else "OFFLINE"
+        
+        print(f"  {status_symbol} {node_id} at {address} [{status_text}]")
+        
+        if status == "online":
+            online_count += 1
+        else:
+            offline_count += 1
+    
+    print(f"\n  Online: {online_count} | Offline: {offline_count}")
+    
+    # Check if required nodes exist and are online
+    if args.source_node not in nodes_info:
         print(f"\n✗ Source node '{args.source_node}' not found")
-        print(f"Available nodes: {', '.join(registered_nodes.keys())}")
+        print(f"Available nodes: {', '.join(nodes_info.keys())}")
         return
     
-    if args.target_node not in registered_nodes:
+    if nodes_info[args.source_node]['status'] != 'online':
+        print(f"\n✗ Source node '{args.source_node}' is OFFLINE")
+        return
+    
+    if args.target_node not in nodes_info:
         print(f"\n✗ Target node '{args.target_node}' not found")
-        print(f"Available nodes: {', '.join(registered_nodes.keys())}")
+        print(f"Available nodes: {', '.join(nodes_info.keys())}")
+        return
+    
+    if nodes_info[args.target_node]['status'] != 'online':
+        print(f"\n✗ Target node '{args.target_node}' is OFFLINE")
         return
     
     # ========================================================================
@@ -196,19 +236,28 @@ def main():
     
     # Create clients for each node to get detailed info
     node_clients = {}
-    for node_id, node_address in registered_nodes.items():
-        host, port = node_address.split(':')
-        node_clients[node_id] = NodeClient(host, int(port))
+    for node_id, info in nodes_info.items():
+        address = info['address']
+        if ':' in address:
+            host, port = address.split(':')
+            node_clients[node_id] = NodeClient(host, int(port))
     
     for node_id, client in node_clients.items():
-        info = client.info()
-        if 'error' not in info:
-            print(f"\n{node_id.upper()}:")
-            print(f"  Address:   {registered_nodes[node_id]}")
-            print(f"  CPU:       {info.get('cpu_capacity')} vCPUs")
-            print(f"  Memory:    {info.get('memory_capacity')} GB")
-            print(f"  Storage:   {info.get('total_storage', 0) / (1024**3):.0f} GB")
-            print(f"  Bandwidth: {info.get('bandwidth', 0) / 1000000:.0f} Mbps")
+        node_info = client.info()
+        status = nodes_info[node_id]['status']
+        status_symbol = "●" if status == "online" else "○"
+        
+        if 'error' not in node_info:
+            print(f"\n{status_symbol} {node_id.upper()} [{status.upper()}]:")
+            print(f"  Address:   {nodes_info[node_id]['address']}")
+            print(f"  CPU:       {node_info.get('cpu_capacity')} vCPUs")
+            print(f"  Memory:    {node_info.get('memory_capacity')} GB")
+            print(f"  Storage:   {node_info.get('total_storage', 0) / (1024**3):.0f} GB")
+            print(f"  Bandwidth: {node_info.get('bandwidth', 0) / 1000000:.0f} Mbps")
+        else:
+            print(f"\n{status_symbol} {node_id.upper()} [{status.upper()}]:")
+            print(f"  Address:   {nodes_info[node_id]['address']}")
+            print(f"  Status:    Unable to retrieve info (node may be offline)")
     
     # ========================================================================
     # STEP 3: Create network connections
@@ -307,6 +356,8 @@ def main():
         
         print(f"\nNetwork Overview:")
         print(f"  Total Nodes:      {stats['total_nodes']}")
+        print(f"  Online Nodes:     {stats.get('online_nodes', 0)}")
+        print(f"  Offline Nodes:    {stats.get('offline_nodes', 0)}")
         print(f"  Storage Used:     {stats['used_storage_bytes'] / (1024**3):.2f}GB / " +
               f"{stats['total_storage_bytes'] / (1024**3):.2f}GB " +
               f"({stats['storage_utilization_percent']:.1f}%)")
