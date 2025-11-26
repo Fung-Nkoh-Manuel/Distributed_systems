@@ -36,6 +36,11 @@ class EnhancedNetworkController:
         # Transfer management
         self.active_transfers: Dict[str, dict] = {}
         
+        # Track changes for minimal status display
+        self.last_node_count = 0
+        self.last_file_count = 0
+        self.last_online_count = 0
+        
         self.running = False
         self.server_socket = None
         self.lock = threading.Lock()
@@ -64,8 +69,8 @@ class EnhancedNetworkController:
         accept_thread = threading.Thread(target=self._accept_connections, daemon=True)
         accept_thread.start()
         
-        # Start monitoring thread
-        monitor_thread = threading.Thread(target=self._monitoring_loop, daemon=True)
+        # Start health monitoring (but don't display status continuously)
+        monitor_thread = threading.Thread(target=self._health_monitoring_loop, daemon=True)
         monitor_thread.start()
         
     def stop(self):
@@ -140,6 +145,8 @@ class EnhancedNetworkController:
                 return self._set_node_offline(args)
             elif command == "replicate_file":
                 return self._replicate_file(args)
+            elif command == "display_status":
+                return self._display_status_on_demand()
             else:
                 return {"success": False, "error": f"Unknown command: {command}"}
                 
@@ -158,7 +165,8 @@ class EnhancedNetworkController:
         print(f"✅ {node_id} online (CPU: {node_info['cpu']}, RAM: {node_info['memory']}GB, "
               f"Storage: {node_info['storage']}GB, BW: {node_info['bandwidth']}Mbps)")
         
-        self._display_network_status()
+        # Only show status when nodes change
+        self._display_minimal_status()
         return {"success": True, "message": f"Node {node_id} registered"}
     
     def _unregister_node(self, args: dict) -> dict:
@@ -180,7 +188,9 @@ class EnhancedNetworkController:
                             self._schedule_re_replication(file_id)
         
         print(f"🔴 {node_id} disconnected")
-        self._display_network_status()
+        
+        # Only show status when nodes change
+        self._display_minimal_status()
         return {"success": True, "message": f"Node {node_id} unregistered"}
     
     def _update_node_status(self, args: dict) -> dict:
@@ -190,7 +200,14 @@ class EnhancedNetworkController:
         
         with self.lock:
             if node_id in self.node_status:
+                old_status = self.node_status[node_id]
                 self.node_status[node_id] = status
+                
+                # Only show status if status actually changed
+                if old_status != status:
+                    status_icon = "🟢" if status == "online" else "🔴"
+                    print(f"{status_icon} {node_id} is now {status.upper()}")
+                    self._display_minimal_status()
         
         return {"success": True}
     
@@ -236,7 +253,8 @@ class EnhancedNetworkController:
         # Schedule replication to other nodes
         self._schedule_replication(file_id)
         
-        self._display_network_status()
+        # Show minimal status for file creation
+        self._display_minimal_status()
         return {"success": True, "file_id": file_id}
     
     def _schedule_replication(self, file_id: str):
@@ -280,7 +298,7 @@ class EnhancedNetworkController:
                     del self.file_replicas[file_id]
                 
                 print(f"🗑️ {file_name} deleted from network")
-                self._display_network_status()
+                self._display_minimal_status()
                 return {"success": True, "message": f"File {file_name} deleted"}
             
             return {"success": False, "error": "File not found"}
@@ -331,7 +349,7 @@ class EnhancedNetworkController:
         time.sleep(1)  # Simulate transfer time
         
         print(f"✅ {target_node} completed download of {file_name}")
-        self._display_network_status()
+        self._display_minimal_status()
         
         return {"success": True, "message": f"File {file_name} transferred"}
     
@@ -414,7 +432,7 @@ class EnhancedNetworkController:
                 self.node_status[node_id] = "online"
         
         print(f"🟢 {node_id} set online")
-        self._display_network_status()
+        self._display_minimal_status()
         return {"success": True}
     
     def _set_node_offline(self, args: dict) -> dict:
@@ -426,7 +444,7 @@ class EnhancedNetworkController:
                 self.node_status[node_id] = "offline"
         
         print(f"🔴 {node_id} set offline")
-        self._display_network_status()
+        self._display_minimal_status()
         return {"success": True}
     
     def _replicate_file(self, args: dict) -> dict:
@@ -435,6 +453,11 @@ class EnhancedNetworkController:
         self._schedule_replication(file_id)
         return {"success": True}
     
+    def _display_status_on_demand(self) -> dict:
+        """Display full status on demand"""
+        self._display_full_status()
+        return {"success": True, "message": "Status displayed"}
+    
     def _get_node_available_storage(self, node_id: str) -> float:
         """Calculate available storage for a node"""
         node_files = [fid for fid, replicas in self.file_replicas.items() if node_id in replicas]
@@ -442,8 +465,33 @@ class EnhancedNetworkController:
         total_storage = self.nodes[node_id]['storage'] * (1024**3)
         return total_storage - used_storage
     
-    def _display_network_status(self):
-        """Display beautiful network status"""
+    def _display_minimal_status(self):
+        """Display minimal status only when there are significant changes"""
+        stats = self._get_network_stats()
+        if not stats['success']:
+            return
+            
+        current_node_count = stats['total_nodes']
+        current_file_count = stats['total_files']
+        current_online_count = stats['online_nodes']
+        
+        # Only display if there are significant changes
+        if (current_node_count != self.last_node_count or 
+            current_file_count != self.last_file_count or
+            current_online_count != self.last_online_count):
+            
+            self.last_node_count = current_node_count
+            self.last_file_count = current_file_count
+            self.last_online_count = current_online_count
+            
+            if current_node_count == 0:
+                print(f"\n🌐 NETWORK STATUS: No nodes registered")
+            else:
+                print(f"\n🌐 NETWORK STATUS: {current_online_count}/{current_node_count} nodes online, "
+                      f"{current_file_count} files")
+    
+    def _display_full_status(self):
+        """Display full detailed status (for on-demand use)"""
         stats = self._get_network_stats()
         if not stats['success']:
             print("❌ Failed to get network statistics")
@@ -514,24 +562,6 @@ class EnhancedNetworkController:
         print(f"⚖️  Load Balance: {stats['load_balance']:.1f}% (avg: {stats['avg_load']:.1f}, "
               f"max: {stats['max_load']})")
         
-        # Per-node storage
-        print(f"\n📊 PER-NODE STORAGE STATUS")
-        print("-" * 80)
-        print(f"{'Node ID':<12} {'Status':<8} {'Used':<12} {'Available':<12} {'Total':<12} {'Usage %':<10}")
-        print("-" * 80)
-        
-        for node_id in nodes_info['nodes']:
-            node_stats = self._get_node_stats({"node_id": node_id})
-            if node_stats['success']:
-                status_icon = "🟢" if node_stats['status'] == "online" else "🔴"
-                available = node_stats['total_storage_gb'] - node_stats['used_storage_gb']
-                usage_pct = (node_stats['used_storage_gb'] / node_stats['total_storage_gb']) * 100 if node_stats['total_storage_gb'] > 0 else 0
-                
-                print(f"{node_id:<12} {status_icon:<4} {node_stats['used_storage_gb']:>8.1f} GB "
-                      f"{available:>8.1f} GB {node_stats['total_storage_gb']:>8.1f} GB {usage_pct:>8.1f} %")
-        
-        print("=" * 80)
-        
         # File listing
         files_info = self._list_files({})
         if files_info['success'] and files_info['files']:
@@ -549,14 +579,24 @@ class EnhancedNetworkController:
         else:
             print(f"\n📂 No files available")
     
-    def _monitoring_loop(self):
-        """Continuous monitoring loop"""
+    def _health_monitoring_loop(self):
+        """Health monitoring without continuous status display"""
         while self.running:
-            time.sleep(10)  # Update every 10 seconds
+            time.sleep(5)  # Check every 5 seconds for health issues
+            
             try:
-                self._display_network_status()
+                stats = self._get_network_stats()
+                if stats['success']:
+                    # Only show warnings for critical issues
+                    if stats['online_nodes'] == 0 and stats['total_nodes'] > 0:
+                        print("⚠️  CRITICAL: All nodes are offline!")
+                    elif stats['well_replicated_files'] < stats['total_files'] and stats['total_files'] > 0:
+                        at_risk = stats['total_files'] - stats['well_replicated_files']
+                        if at_risk > 0:
+                            print(f"⚠️  {at_risk} file(s) have insufficient replication")
             except Exception as e:
-                print(f"❌ Monitoring error: {e}")
+                # Silent error - don't spam console
+                pass
 
 def main():
     parser = argparse.ArgumentParser(description='Enhanced Distributed Cloud Storage Controller')

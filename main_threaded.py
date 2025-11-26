@@ -14,7 +14,7 @@ from typing import Dict, List
 class EnhancedNetworkClient:
     """Enhanced client for distributed storage network"""
     
-    def __init__(self, host='localhost', port=5000):
+    def __init__(self, host='localhost', port=5500):
         self.host = host
         self.port = port
         
