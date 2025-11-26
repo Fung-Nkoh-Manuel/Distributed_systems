@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Threaded Network Server with Socket Communication
-Runs on a specified localhost port and accepts node connections
+Enhanced Distributed Cloud Storage Controller
+Single communication protocol with automatic replication
 """
 
 import socket
@@ -9,57 +9,77 @@ import threading
 import json
 import time
 import hashlib
-from typing import Dict, Any
+from typing import Dict, Any, List
 from collections import defaultdict
 import argparse
+import os
+from datetime import datetime
 
-
-class ThreadedNetworkServer:
-    """Network coordinator that listens on a socket port"""
+class EnhancedNetworkController:
+    """Enhanced network coordinator with replication and monitoring"""
     
-    def __init__(self, host='localhost', port=5500):
+    def __init__(self, host='localhost', port=5000):
         self.host = host
         self.port = port
-        self.nodes: Dict[str, str] = {}  # node_id -> "host:port"
-        self.node_status: Dict[str, str] = {}  # node_id -> "online"/"offline"
+        
+        # Node management
+        self.nodes: Dict[str, dict] = {}  # node_id -> node_info
+        self.node_status: Dict[str, str] = {}  # online/offline
+        
+        # File management
+        self.files: Dict[str, dict] = {}  # file_id -> file_info
+        self.file_replicas: Dict[str, List[str]] = defaultdict(list)  # file_id -> [node_ids]
+        
+        # Network topology
         self.connections: Dict[str, Dict[str, int]] = defaultdict(dict)
+        
+        # Transfer management
         self.active_transfers: Dict[str, dict] = {}
+        
         self.running = False
         self.server_socket = None
         self.lock = threading.Lock()
-        self.health_check_interval = 5  # seconds
         
     def start(self):
-        """Start the network coordinator server"""
+        """Start the enhanced network controller"""
         self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.server_socket.bind((self.host, self.port))
-        self.server_socket.listen(5)
+        self.server_socket.listen(10)
         self.running = True
         
-        print(f"[Network] Coordinator started on {self.host}:{self.port}")
+        print("🚀 ENHANCED DISTRIBUTED CLOUD STORAGE CONTROLLER")
+        print("=" * 60)
+        print("✅ Single communication protocol")
+        print("✅ Automatic file replication")
+        print("✅ Resource-aware node management")
+        print("✅ Fault tolerance with re-replication")
+        print("✅ Bandwidth-aware file transfers")
+        print("✅ Real-time network monitoring")
+        print("✅ Chunked file transfer coordination")
+        print("=" * 60)
+        print(f"🌐 Clean Controller started on {self.host}:{self.port}")
         
-        # Start accepting connections in a separate thread
+        # Start connection handler
         accept_thread = threading.Thread(target=self._accept_connections, daemon=True)
         accept_thread.start()
         
-        # Start health check thread
-        health_thread = threading.Thread(target=self._health_check_loop, daemon=True)
-        health_thread.start()
+        # Start monitoring thread
+        monitor_thread = threading.Thread(target=self._monitoring_loop, daemon=True)
+        monitor_thread.start()
         
     def stop(self):
-        """Stop the network coordinator server"""
+        """Stop the controller"""
         self.running = False
         if self.server_socket:
             self.server_socket.close()
-        print("[Network] Coordinator stopped")
+        print("\n🛑 Controller stopped")
         
     def _accept_connections(self):
-        """Accept incoming client connections"""
+        """Accept incoming connections"""
         while self.running:
             try:
                 client_socket, address = self.server_socket.accept()
-                # Handle each client in a separate thread
                 client_thread = threading.Thread(
                     target=self._handle_client,
                     args=(client_socket, address),
@@ -70,569 +90,494 @@ class ThreadedNetworkServer:
                 break
                 
     def _handle_client(self, client_socket, address):
-        """Handle individual client requests"""
+        """Handle client communication"""
         try:
             while True:
-                # Receive data
-                data = client_socket.recv(4096)
+                data = client_socket.recv(8192)
                 if not data:
                     break
                     
-                # Parse request
                 request = json.loads(data.decode('utf-8'))
                 command = request.get('command')
                 args = request.get('args', {})
                 
-                # Process command
                 response = self._process_command(command, args)
-                
-                # Send response
                 client_socket.sendall(json.dumps(response).encode('utf-8'))
                 
-                # Break after handling one request (don't keep connection open)
-                break
-                
         except Exception as e:
-            print(f"[Network] Error handling client: {e}")
+            print(f"❌ Client handling error: {e}")
         finally:
             client_socket.close()
             
-    def _process_command(self, command: str, args: Dict[str, Any]) -> Dict[str, Any]:
-        """Process commands from clients"""
+    def _process_command(self, command: str, args: dict) -> dict:
+        """Process all commands with enhanced functionality"""
         try:
-            if command == "health":
-                with self.lock:
-                    return {"status": "healthy", "total_nodes": len(self.nodes)}
-            
-            elif command == "register_node":
-                node_id = args.get('node_id')
-                node_address = args.get('node_address')
-                
-                if not node_id or not node_address:
-                    return {"error": "Missing node_id or node_address"}
-                
-                with self.lock:
-                    self.nodes[node_id] = node_address
-                    self.node_status[node_id] = "online"
-                
-                print(f"[Network] Registered {node_id} at {node_address}")
-                return {"success": True, "registered": node_id}
-            
-            elif command == "unregister_node":
-                node_id = args.get('node_id')
-                
-                with self.lock:
-                    if node_id in self.nodes:
-                        del self.nodes[node_id]
-                        if node_id in self.node_status:
-                            del self.node_status[node_id]
-                        print(f"[Network] Unregistered {node_id}")
-                        return {"success": True, "unregistered": node_id}
-                return {"error": "Node not found"}
-            
-            elif command == "list_nodes":
-                with self.lock:
-                    nodes_with_status = {}
-                    for node_id, address in self.nodes.items():
-                        nodes_with_status[node_id] = {
-                            "address": address,
-                            "status": self.node_status.get(node_id, "unknown")
-                        }
-                return {"nodes": nodes_with_status}
-            
-            elif command == "create_connection":
-                node1_id = args.get('node1_id')
-                node2_id = args.get('node2_id')
-                bandwidth = args.get('bandwidth')
-                
-                if not all([node1_id, node2_id, bandwidth]):
-                    return {"error": "Missing required fields"}
-                
-                with self.lock:
-                    if node1_id not in self.nodes or node2_id not in self.nodes:
-                        return {"error": "One or both nodes not registered"}
-                    
-                    self.connections[node1_id][node2_id] = bandwidth
-                    self.connections[node2_id][node1_id] = bandwidth
-                
-                # Tell both nodes about the connection (outside lock)
-                self._send_to_node(node1_id, {
-                    "command": "add_connection",
-                    "args": {"node_id": node2_id, "bandwidth": bandwidth}
-                })
-                
-                self._send_to_node(node2_id, {
-                    "command": "add_connection",
-                    "args": {"node_id": node1_id, "bandwidth": bandwidth}
-                })
-                
-                return {
-                    "success": True,
-                    "connection": f"{node1_id} <-> {node2_id}",
-                    "bandwidth": bandwidth
-                }
-            
-            elif command == "initiate_transfer":
-                source_node_id = args.get('source_node_id')
-                target_node_id = args.get('target_node_id')
-                file_name = args.get('file_name')
-                file_size = args.get('file_size')
-                
-                if not all([source_node_id, target_node_id, file_name, file_size]):
-                    return {"error": "Missing required fields"}
-                
-                with self.lock:
-                    if source_node_id not in self.nodes or target_node_id not in self.nodes:
-                        return {"error": "One or both nodes not registered"}
-                    
-                    # Generate unique file ID
-                    file_id = hashlib.md5(f"{file_name}-{time.time()}".encode()).hexdigest()
-                    
-                    # Create transfer record
-                    self.active_transfers[file_id] = {
-                        "file_id": file_id,
-                        "source_node_id": source_node_id,
-                        "target_node_id": target_node_id,
-                        "file_name": file_name,
-                        "file_size": file_size,
-                        "total_chunks": 0,
-                        "completed_chunks": 0,
-                        "status": "in_progress",
-                        "started_at": time.time()
-                    }
-                
-                # Tell target node to prepare (outside lock)
-                result = self._send_to_node(target_node_id, {
-                    "command": "initiate_transfer",
-                    "args": {
-                        "file_id": file_id,
-                        "file_name": file_name,
-                        "file_size": file_size,
-                        "source_node": source_node_id
-                    }
-                })
-                
-                if 'error' in result:
-                    with self.lock:
-                        if file_id in self.active_transfers:
-                            del self.active_transfers[file_id]
-                    return {"error": f"Failed to initiate transfer: {result['error']}"}
-                
-                # Update with chunk info
-                with self.lock:
-                    if file_id in self.active_transfers:
-                        self.active_transfers[file_id]['total_chunks'] = result.get('total_chunks', 0)
-                
-                return {
-                    "success": True,
-                    "file_id": file_id,
-                    "total_chunks": result.get('total_chunks', 0)
-                }
-            
-            elif command == "process_transfer":
-                file_id = args.get('file_id')
-                chunks_to_process = args.get('chunks_to_process', 1)
-                
-                with self.lock:
-                    if not file_id or file_id not in self.active_transfers:
-                        return {"error": "Transfer not found"}
-                    
-                    transfer = self.active_transfers[file_id]
-                    target_node_id = transfer['target_node_id']
-                    source_node_id = transfer['source_node_id']
-                    start_chunk = transfer['completed_chunks']
-                    end_chunk = min(start_chunk + chunks_to_process, transfer['total_chunks'])
-                
-                # Process chunks (outside lock)
-                chunks_processed = 0
-                for chunk_id in range(start_chunk, end_chunk):
-                    result = self._send_to_node(target_node_id, {
-                        "command": "process_chunk",
-                        "args": {
-                            "file_id": file_id,
-                            "chunk_id": chunk_id,
-                            "source_node": source_node_id
-                        }
-                    })
-                    
-                    if result.get('success'):
-                        chunks_processed += 1
-                        with self.lock:
-                            transfer['completed_chunks'] += 1
-                            
-                            if result.get('completed'):
-                                transfer['status'] = 'completed'
-                                transfer['completed_at'] = time.time()
-                                break
-                    else:
-                        with self.lock:
-                            transfer['status'] = 'failed'
-                        break
-                
-                with self.lock:
-                    return {
-                        "success": True,
-                        "chunks_processed": chunks_processed,
-                        "completed_chunks": transfer['completed_chunks'],
-                        "total_chunks": transfer['total_chunks'],
-                        "status": transfer['status'],
-                        "completed": transfer['status'] == 'completed'
-                    }
-            
-            elif command == "transfer_status":
-                file_id = args.get('file_id')
-                
-                with self.lock:
-                    if file_id not in self.active_transfers:
-                        return {"error": "Transfer not found"}
-                    
-                    transfer = self.active_transfers[file_id]
-                    progress = (transfer['completed_chunks'] / transfer['total_chunks']) * 100
-                    
-                    return {
-                        "file_id": file_id,
-                        "file_name": transfer['file_name'],
-                        "status": transfer['status'],
-                        "progress_percent": progress,
-                        "completed_chunks": transfer['completed_chunks'],
-                        "total_chunks": transfer['total_chunks'],
-                        "source_node": transfer['source_node_id'],
-                        "target_node": transfer['target_node_id']
-                    }
-            
-            elif command == "network_stats":
-                total_storage = 0
-                used_storage = 0
-                online_nodes = 0
-                
-                with self.lock:
-                    node_ids = list(self.nodes.keys())
-                
-                for node_id in node_ids:
-                    with self.lock:
-                        if self.node_status.get(node_id) == "online":
-                            online_nodes += 1
-                    
-                    result = self._send_to_node(node_id, {
-                        "command": "storage_stats",
-                        "args": {}
-                    })
-                    
-                    if 'error' not in result:
-                        total_storage += result.get('total_bytes', 0)
-                        used_storage += result.get('used_bytes', 0)
-                
-                with self.lock:
-                    return {
-                        "total_nodes": len(self.nodes),
-                        "online_nodes": online_nodes,
-                        "offline_nodes": len(self.nodes) - online_nodes,
-                        "total_storage_bytes": total_storage,
-                        "used_storage_bytes": used_storage,
-                        "storage_utilization_percent": (used_storage / total_storage * 100) if total_storage > 0 else 0,
-                        "active_transfers": len([t for t in self.active_transfers.values() if t['status'] == 'in_progress']),
-                        "completed_transfers": len([t for t in self.active_transfers.values() if t['status'] == 'completed'])
-                    }
-            
-            elif command == "tick":
-                with self.lock:
-                    node_ids = list(self.nodes.keys())
-                
-                for node_id in node_ids:
-                    self._send_to_node(node_id, {"command": "tick", "args": {}})
-                
-                return {"success": True}
-            
-            else:
-                return {"error": f"Unknown command: {command}"}
-                
-        except Exception as e:
-            return {"error": str(e)}
             if command == "register_node":
-                node_id = args.get('node_id')
-                node_address = args.get('node_address')
-                
-                if not node_id or not node_address:
-                    return {"error": "Missing node_id or node_address"}
-                
-                self.nodes[node_id] = node_address
-                self.node_status[node_id] = "online"
-                print(f"[Network] Registered {node_id} at {node_address}")
-                return {"success": True, "registered": node_id}
-            
+                return self._register_node(args)
             elif command == "unregister_node":
-                node_id = args.get('node_id')
-                
-                if node_id in self.nodes:
-                    del self.nodes[node_id]
-                    if node_id in self.node_status:
-                        del self.node_status[node_id]
-                    print(f"[Network] Unregistered {node_id}")
-                    return {"success": True, "unregistered": node_id}
-                return {"error": "Node not found"}
-            
+                return self._unregister_node(args)
+            elif command == "node_status":
+                return self._update_node_status(args)
             elif command == "list_nodes":
-                nodes_with_status = {}
-                for node_id, address in self.nodes.items():
-                    nodes_with_status[node_id] = {
-                        "address": address,
-                        "status": self.node_status.get(node_id, "unknown")
-                    }
-                return {"nodes": nodes_with_status}
-            
-            elif command == "create_connection":
-                node1_id = args.get('node1_id')
-                node2_id = args.get('node2_id')
-                bandwidth = args.get('bandwidth')
-                
-                if not all([node1_id, node2_id, bandwidth]):
-                    return {"error": "Missing required fields"}
-                
-                if node1_id not in self.nodes or node2_id not in self.nodes:
-                    return {"error": "One or both nodes not registered"}
-                
-                # Add connection to both nodes (without lock to avoid blocking)
-                try:
-                    # Release lock before making network calls
-                    self.connections[node1_id][node2_id] = bandwidth
-                    self.connections[node2_id][node1_id] = bandwidth
-                except Exception as e:
-                    return {"error": f"Failed to update connection registry: {str(e)}"}
-                
-                # Tell both nodes about the connection (outside of lock)
-                # Use a separate thread to avoid blocking
-                def notify_nodes():
-                    self._send_to_node(node1_id, {
-                        "command": "add_connection",
-                        "args": {"node_id": node2_id, "bandwidth": bandwidth}
-                    })
-                    
-                    self._send_to_node(node2_id, {
-                        "command": "add_connection",
-                        "args": {"node_id": node1_id, "bandwidth": bandwidth}
-                    })
-                
-                import threading
-                thread = threading.Thread(target=notify_nodes, daemon=True)
-                thread.start()
-                
-                return {
-                    "success": True,
-                    "connection": f"{node1_id} <-> {node2_id}",
-                    "bandwidth": bandwidth
-                }
-            
-            elif command == "initiate_transfer":
-                source_node_id = args.get('source_node_id')
-                target_node_id = args.get('target_node_id')
-                file_name = args.get('file_name')
-                file_size = args.get('file_size')
-                
-                if not all([source_node_id, target_node_id, file_name, file_size]):
-                    return {"error": "Missing required fields"}
-                
-                if source_node_id not in self.nodes or target_node_id not in self.nodes:
-                    return {"error": "One or both nodes not registered"}
-                
-                # Generate unique file ID
-                file_id = hashlib.md5(f"{file_name}-{time.time()}".encode()).hexdigest()
-                
-                # Tell target node to prepare for transfer
-                result = self._send_to_node(target_node_id, {
-                    "command": "initiate_transfer",
-                    "args": {
-                        "file_id": file_id,
-                        "file_name": file_name,
-                        "file_size": file_size,
-                        "source_node": source_node_id
-                    }
-                })
-                
-                if 'error' in result:
-                    return result
-                
-                # Track transfer
-                self.active_transfers[file_id] = {
-                    "file_id": file_id,
-                    "source_node_id": source_node_id,
-                    "target_node_id": target_node_id,
-                    "file_name": file_name,
-                    "file_size": file_size,
-                    "total_chunks": result.get('total_chunks', 0),
-                    "completed_chunks": 0,
-                    "status": "in_progress",
-                    "started_at": time.time()
-                }
-                
-                return {
-                    "success": True,
-                    "file_id": file_id,
-                    "total_chunks": result.get('total_chunks', 0)
-                }
-            
-            elif command == "process_transfer":
-                file_id = args.get('file_id')
-                chunks_to_process = args.get('chunks_to_process', 1)
-                
-                if not file_id or file_id not in self.active_transfers:
-                    return {"error": "Transfer not found"}
-                
-                transfer = self.active_transfers[file_id]
-                chunks_processed = 0
-                
-                # Process chunks
-                for chunk_id in range(transfer['completed_chunks'],
-                                        min(transfer['completed_chunks'] + chunks_to_process,
-                                            transfer['total_chunks'])):
-                    result = self._send_to_node(transfer['target_node_id'], {
-                        "command": "process_chunk",
-                        "args": {
-                            "file_id": file_id,
-                            "chunk_id": chunk_id,
-                            "source_node": transfer['source_node_id']
-                        }
-                    })
-                    
-                    if result.get('success'):
-                        chunks_processed += 1
-                        transfer['completed_chunks'] += 1
-                        
-                        if result.get('completed'):
-                            transfer['status'] = 'completed'
-                            transfer['completed_at'] = time.time()
-                            break
-                    else:
-                        transfer['status'] = 'failed'
-                        break
-                
-                return {
-                    "success": True,
-                    "chunks_processed": chunks_processed,
-                    "completed_chunks": transfer['completed_chunks'],
-                    "total_chunks": transfer['total_chunks'],
-                    "status": transfer['status'],
-                    "completed": transfer['status'] == 'completed'
-                }
-            
+                return self._list_nodes()
+            elif command == "create_file":
+                return self._create_file(args)
+            elif command == "delete_file":
+                return self._delete_file(args)
+            elif command == "list_files":
+                return self._list_files(args)
+            elif command == "transfer_file":
+                return self._transfer_file(args)
+            elif command == "download_file":
+                return self._download_file(args)
             elif command == "network_stats":
-                total_storage = 0
-                used_storage = 0
-                online_nodes = 0
+                return self._get_network_stats()
+            elif command == "node_stats":
+                return self._get_node_stats(args)
+            elif command == "set_node_online":
+                return self._set_node_online(args)
+            elif command == "set_node_offline":
+                return self._set_node_offline(args)
+            elif command == "replicate_file":
+                return self._replicate_file(args)
+            else:
+                return {"success": False, "error": f"Unknown command: {command}"}
                 
-                for node_id in self.nodes:
-                    if self.node_status.get(node_id) == "online":
-                        online_nodes += 1
-                        result = self._send_to_node(node_id, {
-                            "command": "storage_stats",
-                            "args": {}
-                        })
-                        if 'error' not in result:
-                            total_storage += result.get('total_bytes', 0)
-                            used_storage += result.get('used_bytes', 0)
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+    
+    def _register_node(self, args: dict) -> dict:
+        """Register a new storage node"""
+        node_id = args['node_id']
+        node_info = args['node_info']
+        
+        with self.lock:
+            self.nodes[node_id] = node_info
+            self.node_status[node_id] = "online"
+            
+        print(f"✅ {node_id} online (CPU: {node_info['cpu']}, RAM: {node_info['memory']}GB, "
+              f"Storage: {node_info['storage']}GB, BW: {node_info['bandwidth']}Mbps)")
+        
+        self._display_network_status()
+        return {"success": True, "message": f"Node {node_id} registered"}
+    
+    def _unregister_node(self, args: dict) -> dict:
+        """Unregister a node"""
+        node_id = args['node_id']
+        
+        with self.lock:
+            if node_id in self.nodes:
+                del self.nodes[node_id]
+                if node_id in self.node_status:
+                    del self.node_status[node_id]
                 
-                return {
-                    "total_nodes": len(self.nodes),
-                    "online_nodes": online_nodes,
-                    "offline_nodes": len(self.nodes) - online_nodes,
-                    "total_storage_bytes": total_storage,
-                    "used_storage_bytes": used_storage,
-                    "storage_utilization_percent": (used_storage / total_storage * 100) if total_storage > 0 else 0,
-                    "active_transfers": len([t for t in self.active_transfers.values() if t['status'] == 'in_progress']),
-                    "completed_transfers": len([t for t in self.active_transfers.values() if t['status'] == 'completed'])
+                # Remove file replicas from this node
+                for file_id, replicas in list(self.file_replicas.items()):
+                    if node_id in replicas:
+                        replicas.remove(node_id)
+                        if not replicas and file_id in self.files:
+                            # No replicas left, schedule re-replication
+                            self._schedule_re_replication(file_id)
+        
+        print(f"🔴 {node_id} disconnected")
+        self._display_network_status()
+        return {"success": True, "message": f"Node {node_id} unregistered"}
+    
+    def _update_node_status(self, args: dict) -> dict:
+        """Update node status"""
+        node_id = args['node_id']
+        status = args['status']
+        
+        with self.lock:
+            if node_id in self.node_status:
+                self.node_status[node_id] = status
+        
+        return {"success": True}
+    
+    def _list_nodes(self) -> dict:
+        """List all registered nodes"""
+        with self.lock:
+            nodes_info = {}
+            for node_id, info in self.nodes.items():
+                nodes_info[node_id] = {
+                    **info,
+                    "status": self.node_status.get(node_id, "unknown"),
+                    "files_count": len([f for f in self.file_replicas.values() if node_id in f])
                 }
             
-            elif command == "tick":
-                for node_id in self.nodes:
-                    self._send_to_node(node_id, {"command": "tick", "args": {}})
-                return {"success": True}
-            
-            else:
-                return {"error": f"Unknown command: {command}"}
-                
-        except Exception as e:
-            return {"error": str(e)}
+            return {"success": True, "nodes": nodes_info}
     
-    def _send_to_node(self, node_id: str, request: dict) -> dict:
-        """Send a request to a specific node"""
-        if node_id not in self.nodes:
-            return {"error": "Node not found"}
+    def _create_file(self, args: dict) -> dict:
+        """Create a file on a node with automatic replication"""
+        node_id = args['node_id']
+        file_name = args['file_name']
+        file_size = args['file_size']
         
-        try:
-            node_address = self.nodes[node_id]
-            host, port = node_address.split(':')
-            port = int(port)
+        if node_id not in self.nodes or self.node_status.get(node_id) != "online":
+            return {"success": False, "error": "Node not available"}
+        
+        # Generate file ID
+        file_id = hashlib.md5(f"{file_name}-{time.time()}".encode()).hexdigest()[:8]
+        
+        with self.lock:
+            self.files[file_id] = {
+                "file_id": file_id,
+                "file_name": file_name,
+                "file_size": file_size,
+                "owner_node": node_id,
+                "created_at": time.time()
+            }
             
-            # Connect to node
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(10)
-            sock.connect((host, port))
-            
-            # Send request
-            sock.sendall(json.dumps(request).encode('utf-8'))
-            
-            # Receive response
-            data = sock.recv(4096)
-            response = json.loads(data.decode('utf-8'))
-            
-            sock.close()
-            
-            # Mark node as online if successful
-            with self.lock:
-                self.node_status[node_id] = "online"
-            
-            return response
-            
-        except Exception as e:
-            # Mark node as offline if communication fails
-            with self.lock:
-                self.node_status[node_id] = "offline"
-            return {"error": f"Failed to communicate with node: {str(e)}"}
+            # Initial replica on owner node
+            self.file_replicas[file_id] = [node_id]
+        
+        print(f"📁 {file_name} ({file_size/1024/1024:.2f} MB) created on {node_id}")
+        
+        # Schedule replication to other nodes
+        self._schedule_replication(file_id)
+        
+        self._display_network_status()
+        return {"success": True, "file_id": file_id}
     
-    def _health_check_loop(self):
-        """Periodically check health of all registered nodes"""
-        while self.running:
-            time.sleep(self.health_check_interval)
-            
-            with self.lock:
-                nodes_to_check = list(self.nodes.keys())
-            
-            for node_id in nodes_to_check:
-                # Send health check
-                result = self._send_to_node(node_id, {
-                    "command": "health",
-                    "args": {}
-                })
+    def _schedule_replication(self, file_id: str):
+        """Schedule file replication to other nodes"""
+        file_info = self.files[file_id]
+        current_replicas = self.file_replicas[file_id]
+        
+        # Find suitable nodes for replication (excluding current replicas)
+        suitable_nodes = []
+        for node_id, node_info in self.nodes.items():
+            if (node_id not in current_replicas and 
+                self.node_status.get(node_id) == "online" and
+                self._get_node_available_storage(node_id) >= file_info['file_size']):
+                suitable_nodes.append((node_id, node_info))
+        
+        # Sort by available resources (simple heuristic)
+        suitable_nodes.sort(key=lambda x: x[1]['storage'] * 0.3 + x[1]['bandwidth'] * 0.7, reverse=True)
+        
+        # Replicate to up to 2 additional nodes (3 total replicas)
+        target_nodes = suitable_nodes[:2]
+        
+        for target_node_id, _ in target_nodes:
+            print(f"🔄 Scheduling replication of {file_info['file_name']} to: {target_node_id}")
+            # In a real implementation, this would trigger actual transfer
+            self.file_replicas[file_id].append(target_node_id)
+    
+    def _schedule_re_replication(self, file_id: str):
+        """Re-replicate files when replicas are lost"""
+        print(f"🔄 Re-replicating file {file_id} due to node failure")
+        self._schedule_replication(file_id)
+    
+    def _delete_file(self, args: dict) -> dict:
+        """Delete a file from all nodes"""
+        file_id = args['file_id']
+        
+        with self.lock:
+            if file_id in self.files:
+                file_name = self.files[file_id]['file_name']
+                del self.files[file_id]
+                if file_id in self.file_replicas:
+                    del self.file_replicas[file_id]
                 
-                # Status is already updated in _send_to_node
-                if 'error' in result:
-                    current_status = self.node_status.get(node_id)
-                    if current_status == "online":
-                        print(f"[Network] ⚠ Node {node_id} is now OFFLINE")
-                else:
-                    current_status = self.node_status.get(node_id)
-                    if current_status == "offline":
-                        print(f"[Network] ✓ Node {node_id} is back ONLINE")
-
+                print(f"🗑️ {file_name} deleted from network")
+                self._display_network_status()
+                return {"success": True, "message": f"File {file_name} deleted"}
+            
+            return {"success": False, "error": "File not found"}
+    
+    def _list_files(self, args: dict) -> dict:
+        """List all files in network"""
+        node_id = args.get('node_id')
+        
+        with self.lock:
+            files_info = []
+            for file_id, file_info in self.files.items():
+                replicas = self.file_replicas.get(file_id, [])
+                if not node_id or node_id in replicas:
+                    files_info.append({
+                        **file_info,
+                        "replicas": len(replicas),
+                        "total_replicas": 3,  # Target replication factor
+                        "available_on": replicas
+                    })
+            
+            return {"success": True, "files": files_info}
+    
+    def _transfer_file(self, args: dict) -> dict:
+        """Transfer file between nodes"""
+        source_node = args['source_node']
+        target_node = args['target_node']
+        file_name = args['file_name']
+        
+        # Find file
+        file_id = None
+        for fid, info in self.files.items():
+            if info['file_name'] == file_name and source_node in self.file_replicas.get(fid, []):
+                file_id = fid
+                break
+        
+        if not file_id:
+            return {"success": False, "error": "File not found on source node"}
+        
+        # Add target node as replica
+        with self.lock:
+            if target_node not in self.file_replicas[file_id]:
+                self.file_replicas[file_id].append(target_node)
+        
+        print(f"📥 {target_node} downloading {file_name} from {source_node} "
+              f"(BW: {self.nodes[target_node]['bandwidth']}Mbps)")
+        
+        # Simulate transfer completion
+        time.sleep(1)  # Simulate transfer time
+        
+        print(f"✅ {target_node} completed download of {file_name}")
+        self._display_network_status()
+        
+        return {"success": True, "message": f"File {file_name} transferred"}
+    
+    def _download_file(self, args: dict) -> dict:
+        """Download file to a node"""
+        return self._transfer_file(args)  # Similar to transfer
+    
+    def _get_network_stats(self) -> dict:
+        """Get comprehensive network statistics"""
+        with self.lock:
+            total_nodes = len(self.nodes)
+            online_nodes = sum(1 for status in self.node_status.values() if status == "online")
+            
+            total_storage = sum(node['storage'] for node in self.nodes.values())
+            used_storage = sum(
+                sum(self.files[fid]['file_size'] for fid, replicas in self.file_replicas.items() 
+                    if node_id in replicas)
+                for node_id in self.nodes.keys()
+            )
+            
+            total_files = len(self.files)
+            well_replicated = sum(1 for replicas in self.file_replicas.values() if len(replicas) >= 2)
+            
+            # Calculate load balance
+            node_loads = []
+            for node_id in self.nodes:
+                load = len([fid for fid, replicas in self.file_replicas.items() if node_id in replicas])
+                node_loads.append(load)
+            
+            avg_load = sum(node_loads) / len(node_loads) if node_loads else 0
+            max_load = max(node_loads) if node_loads else 0
+            load_balance = (1 - (max_load - avg_load) / (max_load + 0.001)) * 100 if max_load > 0 else 100
+            
+            # Safe division for storage utilization
+            storage_utilization = 0.0
+            if total_storage > 0:
+                storage_utilization = (used_storage / (1024**3)) / total_storage * 100
+            
+            return {
+                "success": True,
+                "total_nodes": total_nodes,
+                "online_nodes": online_nodes,
+                "total_storage_gb": total_storage,
+                "used_storage_gb": used_storage / (1024**3),
+                "total_files": total_files,
+                "well_replicated_files": well_replicated,
+                "load_balance": load_balance,
+                "avg_load": avg_load,
+                "max_load": max_load,
+                "storage_utilization": storage_utilization
+            }
+    
+    def _get_node_stats(self, args: dict) -> dict:
+        """Get node-specific statistics"""
+        node_id = args['node_id']
+        
+        with self.lock:
+            if node_id not in self.nodes:
+                return {"success": False, "error": "Node not found"}
+            
+            node_files = [fid for fid, replicas in self.file_replicas.items() if node_id in replicas]
+            used_storage = sum(self.files[fid]['file_size'] for fid in node_files)
+            total_storage = self.nodes[node_id]['storage'] * (1024**3)  # Convert GB to bytes
+            
+            return {
+                "success": True,
+                "node_id": node_id,
+                "used_storage_gb": used_storage / (1024**3),
+                "total_storage_gb": self.nodes[node_id]['storage'],
+                "files_count": len(node_files),
+                "status": self.node_status.get(node_id, "unknown")
+            }
+    
+    def _set_node_online(self, args: dict) -> dict:
+        """Set node online"""
+        node_id = args['node_id']
+        
+        with self.lock:
+            if node_id in self.node_status:
+                self.node_status[node_id] = "online"
+        
+        print(f"🟢 {node_id} set online")
+        self._display_network_status()
+        return {"success": True}
+    
+    def _set_node_offline(self, args: dict) -> dict:
+        """Set node offline"""
+        node_id = args['node_id']
+        
+        with self.lock:
+            if node_id in self.node_status:
+                self.node_status[node_id] = "offline"
+        
+        print(f"🔴 {node_id} set offline")
+        self._display_network_status()
+        return {"success": True}
+    
+    def _replicate_file(self, args: dict) -> dict:
+        """Manually trigger file replication"""
+        file_id = args['file_id']
+        self._schedule_replication(file_id)
+        return {"success": True}
+    
+    def _get_node_available_storage(self, node_id: str) -> float:
+        """Calculate available storage for a node"""
+        node_files = [fid for fid, replicas in self.file_replicas.items() if node_id in replicas]
+        used_storage = sum(self.files[fid]['file_size'] for fid in node_files)
+        total_storage = self.nodes[node_id]['storage'] * (1024**3)
+        return total_storage - used_storage
+    
+    def _display_network_status(self):
+        """Display beautiful network status"""
+        stats = self._get_network_stats()
+        if not stats['success']:
+            print("❌ Failed to get network statistics")
+            return
+            
+        nodes_info = self._list_nodes()
+        if not nodes_info['success']:
+            print("❌ Failed to get nodes list")
+            return
+        
+        total_nodes = stats['total_nodes']
+        
+        if total_nodes == 0:
+            print(f"\n🌐 NETWORK STATUS (0 nodes)")
+            print("=" * 90)
+            print("No nodes registered yet")
+            print("=" * 90)
+            return
+        
+        print(f"\n🌐 NETWORK STATUS ({total_nodes} nodes)")
+        print("=" * 90)
+        print(f"{'Node ID':<12} {'Status':<8} {'CPU':<4} {'RAM':<6} {'Storage':<18} {'BW':<8} {'Files':<6}")
+        print("-" * 90)
+        
+        for node_id, info in nodes_info['nodes'].items():
+            status_icon = "🟢" if info['status'] == "online" else "🔴"
+            node_stat = self._get_node_stats({"node_id": node_id})
+            if node_stat['success']:
+                storage_used = node_stat['used_storage_gb']
+                storage_percent = (storage_used / info['storage']) * 100 if info['storage'] > 0 else 0
+                
+                print(f"{node_id:<12} {status_icon:<4} {info['cpu']:<4} {info['memory']:<4}GB "
+                      f"{storage_percent:.1f}%/{info['storage']}GB {info['bandwidth']:<4}M "
+                      f"{info['files_count']:<6}")
+        
+        print("=" * 90)
+        
+        # Storage summary
+        print(f"\n💾 NETWORK STORAGE SUMMARY")
+        print("-" * 50)
+        print(f"Total Capacity: {stats['total_storage_gb']:.1f} GB")
+        
+        # Safe division for storage usage display
+        if stats['total_storage_gb'] > 0:
+            usage_percent = (stats['used_storage_gb'] / stats['total_storage_gb']) * 100
+            print(f"Used Storage:   {stats['used_storage_gb']:.1f} GB ({usage_percent:.1f}%)")
+        else:
+            print(f"Used Storage:   {stats['used_storage_gb']:.1f} GB (0.0%)")
+            
+        available = stats['total_storage_gb'] - stats['used_storage_gb']
+        print(f"Available:      {available:.1f} GB")
+        print("-" * 50)
+        
+        # Health dashboard
+        print(f"\n🏥 SYSTEM HEALTH DASHBOARD")
+        print("=" * 80)
+        
+        # Safe division for percentages
+        network_health = (stats['online_nodes'] / total_nodes * 100) if total_nodes > 0 else 0
+        replication_health = (stats['well_replicated_files'] / stats['total_files'] * 100) if stats['total_files'] > 0 else 100
+        
+        print(f"🌐 Network Health: {network_health:.1f}% "
+              f"({stats['online_nodes']}/{total_nodes} nodes active)")
+        print(f"💾 Storage Utilization: {stats['storage_utilization']:.1f}% "
+              f"({stats['used_storage_gb']:.1f}/{stats['total_storage_gb']:.1f} GB)")
+        print(f"🔄 Replication Health: {replication_health:.1f}% "
+              f"({stats['well_replicated_files']}/{stats['total_files']} files well-replicated)")
+        print(f"⚖️  Load Balance: {stats['load_balance']:.1f}% (avg: {stats['avg_load']:.1f}, "
+              f"max: {stats['max_load']})")
+        
+        # Per-node storage
+        print(f"\n📊 PER-NODE STORAGE STATUS")
+        print("-" * 80)
+        print(f"{'Node ID':<12} {'Status':<8} {'Used':<12} {'Available':<12} {'Total':<12} {'Usage %':<10}")
+        print("-" * 80)
+        
+        for node_id in nodes_info['nodes']:
+            node_stats = self._get_node_stats({"node_id": node_id})
+            if node_stats['success']:
+                status_icon = "🟢" if node_stats['status'] == "online" else "🔴"
+                available = node_stats['total_storage_gb'] - node_stats['used_storage_gb']
+                usage_pct = (node_stats['used_storage_gb'] / node_stats['total_storage_gb']) * 100 if node_stats['total_storage_gb'] > 0 else 0
+                
+                print(f"{node_id:<12} {status_icon:<4} {node_stats['used_storage_gb']:>8.1f} GB "
+                      f"{available:>8.1f} GB {node_stats['total_storage_gb']:>8.1f} GB {usage_pct:>8.1f} %")
+        
+        print("=" * 80)
+        
+        # File listing
+        files_info = self._list_files({})
+        if files_info['success'] and files_info['files']:
+            print(f"\n📂 AVAILABLE FILES ({len(files_info['files'])} total)")
+            print("=" * 80)
+            print(f"{'File Name':<20} {'Size':<12} {'Owner':<12} {'Replicas':<12} {'Status':<12}")
+            print("-" * 80)
+            
+            for file_info in files_info['files']:
+                status = "✅ Available" if file_info['replicas'] >= 2 else "⚠️  At Risk"
+                size_mb = file_info['file_size'] / (1024 * 1024)
+                print(f"{file_info['file_name']:<20} {size_mb:>8.2f} MB {file_info['owner_node']:<12} "
+                      f"{file_info['replicas']}/{file_info['total_replicas']:<12} {status:<12}")
+            print("=" * 80)
+        else:
+            print(f"\n📂 No files available")
+    
+    def _monitoring_loop(self):
+        """Continuous monitoring loop"""
+        while self.running:
+            time.sleep(10)  # Update every 10 seconds
+            try:
+                self._display_network_status()
+            except Exception as e:
+                print(f"❌ Monitoring error: {e}")
 
 def main():
-    parser = argparse.ArgumentParser(description='Threaded Network Coordinator Server')
-    parser.add_argument('--host', default='localhost', help='Host to bind to (default: localhost)')
-    parser.add_argument('--port', type=int, default=5500, help='Port to bind to (default: 5500)')
+    parser = argparse.ArgumentParser(description='Enhanced Distributed Cloud Storage Controller')
+    parser.add_argument('--host', default='0.0.0.0', help='Host to bind to (default: 0.0.0.0)')
+    parser.add_argument('--port', type=int, default=5000, help='Port to bind to (default: 5000)')
     
     args = parser.parse_args()
     
-    server = ThreadedNetworkServer(host=args.host, port=args.port)
-    server.start()
-    
-    print(f"\nNetwork Coordinator running. Press Ctrl+C to stop.\n")
+    controller = EnhancedNetworkController(host=args.host, port=args.port)
     
     try:
+        controller.start()
+        print(f"\n🔄 Controller running. Press Ctrl+C to stop.\n")
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
-        print("\n\nStopping server...")
-        server.stop()
-
+        print("\n\n🛑 Shutting down controller...")
+        controller.stop()
+    except Exception as e:
+        print(f"\n❌ Controller error: {e}")
+        controller.stop()
 
 if __name__ == '__main__':
     main()
