@@ -11,6 +11,7 @@ import time
 import argparse
 import os
 import shutil
+import random
 from typing import Dict, Any
 from storage_virtual_node import StorageVirtualNode, TransferStatus
 
@@ -230,11 +231,141 @@ class ThreadedNodeServer:
                     self.node.network_utilization = 0
                     return {"success": True}
                 
+                elif command == "create_file":
+                    # New command: Create a file locally on this node
+                    return self._create_local_file(args)
+                
+                elif command == "list_files":
+                    # New command: List files stored on this node
+                    return self._list_local_files()
+                
                 else:
                     return {"error": f"Unknown command: {command}"}
                     
             except Exception as e:
                 return {"error": str(e)}
+    
+    def _create_local_file(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """Create a file locally on this node"""
+        file_name = args.get('file_name')
+        file_size_mb = args.get('file_size_mb', 10)
+        content_type = args.get('content_type', 'random')  # random, text, binary
+        
+        if not file_name:
+            return {"error": "Missing file_name parameter"}
+        
+        file_size_bytes = file_size_mb * 1024 * 1024
+        file_path = os.path.join(self.storage_path, file_name)
+        
+        # Check if we have enough storage space
+        if self.node.used_storage + file_size_bytes > self.node.total_storage:
+            return {"error": "Insufficient storage space"}
+        
+        try:
+            # Create the file with specified content
+            if content_type == 'text':
+                # Create text file with repeating pattern
+                text_content = "This is a sample text file created by node {}. ".format(self.node.node_id)
+                text_content += "This line is repeated to fill the file. "
+                
+                with open(file_path, 'w') as f:
+                    while f.tell() < file_size_bytes:
+                        f.write(text_content)
+                        
+            elif content_type == 'binary':
+                # Create binary file with random data
+                chunk_size = 1024 * 1024  # 1MB chunks
+                with open(file_path, 'wb') as f:
+                    remaining = file_size_bytes
+                    while remaining > 0:
+                        chunk = min(chunk_size, remaining)
+                        f.write(os.urandom(chunk))
+                        remaining -= chunk
+            else:  # random (default)
+                # Create file with mix of text and binary
+                chunk_size = 1024 * 1024  # 1MB chunks
+                with open(file_path, 'wb') as f:
+                    remaining = file_size_bytes
+                    while remaining > 0:
+                        chunk = min(chunk_size, remaining)
+                        # Mix of random bytes and some text
+                        if random.random() > 0.7:
+                            # Add some structured data occasionally
+                            header = f"Chunk at position {f.tell()}\n".encode()
+                            f.write(header)
+                            f.write(os.urandom(chunk - len(header)))
+                        else:
+                            f.write(os.urandom(chunk))
+                        remaining -= chunk
+            
+            # Update node storage metrics
+            self.node.used_storage += file_size_bytes
+            
+            # Create a file transfer record for consistency
+            file_id = f"local_{file_name}_{int(time.time())}"
+            chunks = self.node._generate_chunks(file_id, file_size_bytes)
+            
+            transfer = FileTransfer(
+                file_id=file_id,
+                file_name=file_name,
+                total_size=file_size_bytes,
+                chunks=chunks,
+                status=TransferStatus.COMPLETED,
+                completed_at=time.time()
+            )
+            
+            # Mark all chunks as completed
+            for chunk in chunks:
+                chunk.status = TransferStatus.COMPLETED
+                chunk.stored_node = self.node.node_id
+            
+            self.node.stored_files[file_id] = transfer
+            self.node.total_requests_processed += 1
+            
+            actual_size = os.path.getsize(file_path)
+            
+            return {
+                "success": True,
+                "file_name": file_name,
+                "file_path": file_path,
+                "expected_size_bytes": file_size_bytes,
+                "actual_size_bytes": actual_size,
+                "file_id": file_id,
+                "message": f"File created successfully on node {self.node.node_id}"
+            }
+            
+        except Exception as e:
+            return {"error": f"Failed to create file: {str(e)}"}
+    
+    def _list_local_files(self) -> Dict[str, Any]:
+        """List all files stored locally on this node"""
+        try:
+            files = []
+            total_size = 0
+            
+            if os.path.exists(self.storage_path):
+                for item in os.listdir(self.storage_path):
+                    item_path = os.path.join(self.storage_path, item)
+                    if os.path.isfile(item_path):
+                        file_size = os.path.getsize(item_path)
+                        files.append({
+                            "name": item,
+                            "size_bytes": file_size,
+                            "size_mb": file_size / (1024 * 1024),
+                            "created_time": os.path.getctime(item_path)
+                        })
+                        total_size += file_size
+            
+            return {
+                "success": True,
+                "node_id": self.node.node_id,
+                "files": files,
+                "total_files": len(files),
+                "total_size_bytes": total_size,
+                "total_size_mb": total_size / (1024 * 1024)
+            }
+        except Exception as e:
+            return {"error": f"Failed to list files: {str(e)}"}
     
     def register_with_network(self, network_host, network_port):
         """Register this node with the network coordinator"""
@@ -299,6 +430,143 @@ class ThreadedNodeServer:
             print(f"[Node {self.node.node_id}] Error unregistering from network: {e}")
 
 
+def interactive_mode(server: ThreadedNodeServer):
+    """Interactive mode for creating files and managing the node"""
+    print(f"\n{'='*60}")
+    print(f"INTERACTIVE MODE - Node {server.node.node_id}")
+    print(f"{'='*60}")
+    
+    while True:
+        print(f"\nOptions for Node {server.node.node_id}:")
+        print("  1. Create a new file")
+        print("  2. List local files")
+        print("  3. Show storage statistics")
+        print("  4. Show network statistics")
+        print("  5. Show performance metrics")
+        print("  6. Exit interactive mode")
+        
+        try:
+            choice = input("\nEnter your choice (1-6): ").strip()
+            
+            if choice == '1':
+                # Create file
+                file_name = input("Enter file name: ").strip()
+                if not file_name:
+                    print("File name cannot be empty!")
+                    continue
+                
+                try:
+                    size_mb = float(input("Enter file size in MB: ").strip())
+                    if size_mb <= 0:
+                        print("File size must be positive!")
+                        continue
+                except ValueError:
+                    print("Invalid file size!")
+                    continue
+                
+                print("Content types:")
+                print("  1. Random data (default)")
+                print("  2. Text data")
+                print("  3. Binary data")
+                content_choice = input("Choose content type (1-3, default 1): ").strip()
+                
+                content_type = 'random'
+                if content_choice == '2':
+                    content_type = 'text'
+                elif content_choice == '3':
+                    content_type = 'binary'
+                
+                # Create the file
+                result = server._create_local_file({
+                    'file_name': file_name,
+                    'file_size_mb': size_mb,
+                    'content_type': content_type
+                })
+                
+                if result.get('success'):
+                    print(f"✓ File created successfully!")
+                    print(f"  Name: {result['file_name']}")
+                    print(f"  Size: {result['actual_size_bytes'] / (1024*1024):.2f} MB")
+                    print(f"  Path: {result['file_path']}")
+                else:
+                    print(f"✗ Failed to create file: {result.get('error', 'Unknown error')}")
+            
+            elif choice == '2':
+                # List files
+                result = server._list_local_files()
+                if result.get('success'):
+                    files = result['files']
+                    if files:
+                        print(f"\nFiles stored on node {server.node.node_id}:")
+                        print("-" * 60)
+                        for file_info in files:
+                            created_time = time.strftime('%Y-%m-%d %H:%M:%S', 
+                                                        time.localtime(file_info['created_time']))
+                            print(f"  {file_info['name']}")
+                            print(f"    Size: {file_info['size_mb']:.2f} MB")
+                            print(f"    Created: {created_time}")
+                            print()
+                    else:
+                        print("No files stored on this node.")
+                    print(f"Total: {result['total_files']} files, {result['total_size_mb']:.2f} MB")
+                else:
+                    print(f"✗ Failed to list files: {result.get('error', 'Unknown error')}")
+            
+            elif choice == '3':
+                # Storage stats
+                result = server._process_command("storage_stats", {})
+                if 'error' not in result:
+                    print(f"\nStorage Statistics for Node {server.node.node_id}:")
+                    print("-" * 40)
+                    print(f"Used Storage:  {result['used_bytes'] / (1024**3):.2f} GB")
+                    print(f"Total Storage: {result['total_bytes'] / (1024**3):.2f} GB")
+                    print(f"Utilization:   {result['utilization_percent']:.1f}%")
+                    print(f"Files Stored:  {result['files_stored']}")
+                    if 'actual_disk_usage_mb' in result:
+                        print(f"Actual Disk:   {result['actual_disk_usage_mb']:.2f} MB")
+                else:
+                    print(f"✗ Failed to get storage stats: {result['error']}")
+            
+            elif choice == '4':
+                # Network stats
+                result = server._process_command("network_stats", {})
+                if 'error' not in result:
+                    print(f"\nNetwork Statistics for Node {server.node.node_id}:")
+                    print("-" * 40)
+                    print(f"Current Usage: {result['current_utilization_bps'] / 1000000:.2f} Mbps")
+                    print(f"Max Bandwidth: {result['max_bandwidth_bps'] / 1000000:.2f} Mbps")
+                    print(f"Utilization:   {result['utilization_percent']:.1f}%")
+                    print(f"Connections:   {', '.join(result['connections'])}")
+                else:
+                    print(f"✗ Failed to get network stats: {result['error']}")
+            
+            elif choice == '5':
+                # Performance stats
+                result = server._process_command("performance_stats", {})
+                if 'error' not in result:
+                    print(f"\nPerformance Metrics for Node {server.node.node_id}:")
+                    print("-" * 40)
+                    print(f"Requests Processed: {result['total_requests_processed']}")
+                    print(f"Data Transferred:   {result['total_data_transferred_bytes'] / (1024**2):.2f} MB")
+                    print(f"Failed Transfers:   {result['failed_transfers']}")
+                    print(f"Active Transfers:   {result['current_active_transfers']}")
+                else:
+                    print(f"✗ Failed to get performance stats: {result['error']}")
+            
+            elif choice == '6':
+                print("Exiting interactive mode...")
+                break
+            
+            else:
+                print("Invalid choice! Please enter 1-6.")
+                
+        except KeyboardInterrupt:
+            print("\nExiting interactive mode...")
+            break
+        except Exception as e:
+            print(f"Error: {e}")
+
+
 def main():
     parser = argparse.ArgumentParser(description='Threaded Node Server with Auto Port Assignment')
     parser.add_argument('--node-id', required=True, help='Node identifier')
@@ -318,6 +586,8 @@ def main():
                        help='Bandwidth in Mbps (default: 1000)')
     parser.add_argument('--storage-path', type=str, default=None,
                        help='Custom storage directory path (default: ./storage_<node-id>)')
+    parser.add_argument('--interactive', action='store_true',
+                       help='Start in interactive mode after initialization')
     
     args = parser.parse_args()
     
@@ -367,6 +637,10 @@ def main():
     print(f"Node '{args.node_id}' is ready and running!")
     print(f"Press Ctrl+C to stop.")
     print(f"{'=' * 70}\n")
+    
+    # Start interactive mode if requested
+    if args.interactive:
+        interactive_mode(server)
     
     try:
         while True:
