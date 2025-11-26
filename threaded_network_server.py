@@ -126,9 +126,9 @@ class EnhancedNetworkController:
             elif command == "list_nodes":
                 return self._list_nodes()
             elif command == "create_file":
-                return self._create_file_actual(args)  # Use the actual file creation method
+                return self._create_file_actual(args)
             elif command == "delete_file":
-                return self._delete_file(args)
+                return self._delete_file_actual(args)  # Use actual delete method
             elif command == "list_files":
                 return self._list_files(args)
             elif command == "transfer_file":
@@ -289,6 +289,66 @@ class EnhancedNetworkController:
         except Exception as e:
             return {"success": False, "error": f"Failed to connect to node: {str(e)}"}
     
+    def _delete_file_actual(self, args: dict) -> dict:
+        """Actually delete file from all nodes"""
+        file_id = args['file_id']
+        
+        with self.lock:
+            if file_id not in self.files:
+                return {"success": False, "error": "File not found"}
+            
+            file_info = self.files[file_id]
+            file_name = file_info['file_name']
+            replicas = self.file_replicas.get(file_id, [])
+            
+            print(f"🗑️  Deleting {file_name} from {len(replicas)} nodes...")
+            
+            # Delete file from all replica nodes
+            deleted_count = 0
+            for node_id in replicas:
+                if node_id in self.nodes and self.node_status.get(node_id) == "online":
+                    node_info = self.nodes[node_id]
+                    node_address = node_info.get('address', 'localhost:0').split(':')
+                    node_host = node_address[0]
+                    node_port = int(node_address[1])
+                    
+                    try:
+                        # Connect to node to delete file
+                        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                        sock.settimeout(10)
+                        sock.connect((node_host, node_port))
+                        
+                        delete_request = {
+                            "command": "delete_file",
+                            "args": {
+                                "file_id": file_id
+                            }
+                        }
+                        
+                        sock.sendall(json.dumps(delete_request).encode('utf-8'))
+                        data = sock.recv(4096)
+                        delete_response = json.loads(data.decode('utf-8'))
+                        
+                        sock.close()
+                        
+                        if delete_response.get('success'):
+                            deleted_count += 1
+                            print(f"   ✅ Deleted from {node_id}")
+                        else:
+                            print(f"   ❌ Failed to delete from {node_id}: {delete_response.get('error')}")
+                            
+                    except Exception as e:
+                        print(f"   ❌ Error connecting to {node_id}: {e}")
+            
+            # Remove from controller registry
+            del self.files[file_id]
+            if file_id in self.file_replicas:
+                del self.file_replicas[file_id]
+            
+            print(f"🗑️  {file_name} deleted from {deleted_count}/{len(replicas)} nodes")
+            self._display_minimal_status()
+            return {"success": True, "message": f"File {file_name} deleted from {deleted_count} nodes"}
+    
     def _schedule_replication(self, file_id: str):
         """Schedule file replication to other nodes"""
         file_info = self.files[file_id]
@@ -317,23 +377,6 @@ class EnhancedNetworkController:
         """Re-replicate files when replicas are lost"""
         print(f"🔄 Re-replicating file {file_id} due to node failure")
         self._schedule_replication(file_id)
-    
-    def _delete_file(self, args: dict) -> dict:
-        """Delete a file from all nodes"""
-        file_id = args['file_id']
-        
-        with self.lock:
-            if file_id in self.files:
-                file_name = self.files[file_id]['file_name']
-                del self.files[file_id]
-                if file_id in self.file_replicas:
-                    del self.file_replicas[file_id]
-                
-                print(f"🗑️ {file_name} deleted from network")
-                self._display_minimal_status()
-                return {"success": True, "message": f"File {file_name} deleted"}
-            
-            return {"success": False, "error": "File not found"}
     
     def _list_files(self, args: dict) -> dict:
         """List all files in network"""
@@ -456,10 +499,13 @@ class EnhancedNetworkController:
             }
     
     def _set_node_online(self, args: dict) -> dict:
-        """Set node online"""
+        """Set node online - only for registered nodes"""
         node_id = args['node_id']
         
         with self.lock:
+            if node_id not in self.nodes:
+                return {"success": False, "error": f"Node {node_id} is not registered"}
+            
             if node_id in self.node_status:
                 self.node_status[node_id] = "online"
         
@@ -468,10 +514,13 @@ class EnhancedNetworkController:
         return {"success": True}
     
     def _set_node_offline(self, args: dict) -> dict:
-        """Set node offline"""
+        """Set node offline - only for registered nodes"""
         node_id = args['node_id']
         
         with self.lock:
+            if node_id not in self.nodes:
+                return {"success": False, "error": f"Node {node_id} is not registered"}
+            
             if node_id in self.node_status:
                 self.node_status[node_id] = "offline"
         

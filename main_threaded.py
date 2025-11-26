@@ -14,7 +14,7 @@ from typing import Dict, List
 class EnhancedNetworkClient:
     """Enhanced client for distributed storage network"""
     
-    def __init__(self, host='localhost', port=5500):  # Fixed port to 5000
+    def __init__(self, host='localhost', port=5500):
         self.host = host
         self.port = port
         
@@ -224,6 +224,7 @@ def interactive_menu():
                 file_name = input("File name: ").strip()
                 size_mb = float(input("Size (MB): ").strip())
                 
+                print(f"🔄 Creating file {file_name} on {node_id}...")
                 result = client.create_file(node_id, file_name, size_mb)
                 if result['success']:
                     print(f"✅ File {file_name} created on {node_id}")
@@ -242,11 +243,16 @@ def interactive_menu():
                     file_idx = int(input("File number to delete: ")) - 1
                     if 0 <= file_idx < len(files['files']):
                         file_id = files['files'][file_idx]['file_id']
+                        file_name = files['files'][file_idx]['file_name']
+                        
+                        print(f"🔄 Deleting {file_name}...")
                         result = client.delete_file(file_id)
                         if result['success']:
-                            print("✅ File deleted")
+                            print(f"✅ {result.get('message', 'File deleted successfully')}")
                         else:
                             print(f"❌ Failed: {result.get('error')}")
+                    else:
+                        print("❌ Invalid file number")
                 else:
                     print("❌ No files available")
                     
@@ -276,9 +282,10 @@ def interactive_menu():
                 target = input("Target node: ").strip()
                 file_name = input("File name: ").strip()
                 
+                print(f"🔄 Transferring {file_name} from {source} to {target}...")
                 result = client.transfer_file(source, target, file_name)
                 if result['success']:
-                    print(f"✅ Transfer initiated: {source} → {target}")
+                    print(f"✅ {result.get('message', 'Transfer completed')}")
                 else:
                     print(f"❌ Transfer failed: {result.get('error')}")
                     
@@ -287,14 +294,16 @@ def interactive_menu():
                 file_name = input("File name: ").strip()
                 source = input("Source node (optional): ").strip()
                 
+                print(f"🔄 Downloading {file_name} to {target}...")
                 result = client.download_file(target, file_name, source)
                 if result['success']:
-                    print(f"✅ Download initiated to {target}")
+                    print(f"✅ {result.get('message', 'Download completed')}")
                 else:
                     print(f"❌ Download failed: {result.get('error')}")
                     
             elif choice == '8':
                 node_id = input("Node ID to set online: ").strip()
+                print(f"🔄 Setting {node_id} online...")
                 result = client.set_node_online(node_id)
                 if result['success']:
                     print(f"🟢 {node_id} set online")
@@ -303,6 +312,7 @@ def interactive_menu():
                     
             elif choice == '9':
                 node_id = input("Node ID to set offline: ").strip()
+                print(f"🔄 Setting {node_id} offline...")
                 result = client.set_node_offline(node_id)
                 if result['success']:
                     print(f"🔴 {node_id} set offline")

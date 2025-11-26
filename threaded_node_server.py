@@ -85,8 +85,16 @@ class EnhancedStorageNode:
             command = request.get('command')
             args = request.get('args', {})
             
+            print(f"🔧 {self.node_id} received command: {command}")
+            
             response = self._process_command(command, args)
             client_socket.sendall(json.dumps(response).encode('utf-8'))
+            
+            # Log the action on the node
+            if command == "create_file":
+                print(f"✅ {self.node_id} successfully created file: {args.get('file_name')}")
+            elif command == "delete_file":
+                print(f"✅ {self.node_id} successfully deleted file: {args.get('file_id')}")
             
         except Exception as e:
             print(f"❌ Node {self.node_id} client error: {e}")
@@ -185,7 +193,7 @@ class EnhancedStorageNode:
             "actual_size": os.path.getsize(file_path)
         }
         
-        print(f"📁 Created {file_name} ({file_size/1024/1024:.2f} MB) on {self.node_id}")
+        print(f"📁 {self.node_id} created {file_name} ({file_size/1024/1024:.2f} MB)")
         print(f"   📍 Location: {file_path}")
         print(f"   📊 Actual size: {os.path.getsize(file_path)} bytes")
         
@@ -196,26 +204,28 @@ class EnhancedStorageNode:
         file_id = args['file_id']
         
         if file_id not in self.files:
-            return {"success": False, "error": "File not found"}
+            return {"success": False, "error": "File not found on this node"}
         
         file_info = self.files[file_id]
         file_path = file_info['file_path']
+        file_name = file_info['file_name']
         
         # Delete physical file
         try:
             if os.path.exists(file_path):
                 os.remove(file_path)
-                print(f"🗑️  Deleted physical file: {file_path}")
+                print(f"🗑️  {self.node_id} deleted physical file: {file_path}")
             else:
-                print(f"⚠️  File not found at path: {file_path}")
+                print(f"⚠️  {self.node_id}: File not found at path: {file_path}")
         except Exception as e:
-            print(f"❌ Error deleting file: {e}")
+            print(f"❌ {self.node_id} error deleting file: {e}")
+            return {"success": False, "error": f"File deletion failed: {str(e)}"}
         
         # Remove from registry
         del self.files[file_id]
         
-        print(f"🗑️  Removed {file_info['file_name']} from {self.node_id} registry")
-        return {"success": True}
+        print(f"🗑️  {self.node_id} removed {file_name} from registry")
+        return {"success": True, "message": f"File {file_name} deleted from {self.node_id}"}
     
     def _list_files(self) -> dict:
         """List all files on this node"""
