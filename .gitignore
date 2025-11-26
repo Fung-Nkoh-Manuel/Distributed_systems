@@ -6,4 +6,4 @@ credentials
 ids
 params.py
 grcpauth-firebase-adminsdk-fbsvc-687effe5bf.json
-fifrebase_auth_service.py
+firebase_auth_service.py
