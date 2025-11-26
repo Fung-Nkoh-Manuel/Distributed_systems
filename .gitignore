@@ -5,4 +5,5 @@ cloudsecurity_pb2.py
 credentials
 ids
 params.py
-C:\Users\Kelton\Documents\ICT-U\level4\Spring\DS&CC\cloudTemplateProject\grcpauth-firebase-adminsdk-fbsvc-687effe5bf.json
+grcpauth-firebase-adminsdk-fbsvc-687effe5bf.json
+fifrebase_auth_service.py
