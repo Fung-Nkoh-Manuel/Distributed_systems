@@ -21,13 +21,20 @@ class EnhancedStorageNode:
         self.storage = storage  # GB
         self.bandwidth = bandwidth  # Mbps
         
-        self.storage_path = f"storage_{node_id}"
+        # Create storage directory with absolute path
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        self.storage_path = os.path.join(current_dir, f"storage_{node_id}")
+        
+        # Ensure storage directory exists and is empty
+        if os.path.exists(self.storage_path):
+            shutil.rmtree(self.storage_path)
+        os.makedirs(self.storage_path, exist_ok=True)
+        
         self.files: Dict[str, dict] = {}
         self.running = False
         
-        # Create storage directory
-        os.makedirs(self.storage_path, exist_ok=True)
-        
+        print(f"📁 Storage directory created: {self.storage_path}")
+
     def start_server(self, host='localhost', port=0):
         """Start node server"""
         self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -38,6 +45,7 @@ class EnhancedStorageNode:
         self.running = True
         
         print(f"🖥️  Node {self.node_id} started on {host}:{self.actual_port}")
+        print(f"📁 Storage path: {self.storage_path}")
         
         # Start accepting connections
         accept_thread = threading.Thread(target=self._accept_connections, daemon=True)
@@ -102,6 +110,8 @@ class EnhancedStorageNode:
                 return self._storage_stats()
             elif command == "health":
                 return {"status": "healthy", "node_id": self.node_id}
+            elif command == "transfer_chunk":
+                return self._transfer_chunk(args)
             else:
                 return {"success": False, "error": f"Unknown command: {command}"}
                 
@@ -118,7 +128,8 @@ class EnhancedStorageNode:
             "storage": self.storage,
             "bandwidth": self.bandwidth,
             "address": f"localhost:{self.actual_port}",
-            "files_count": len(self.files)
+            "files_count": len(self.files),
+            "storage_path": self.storage_path
         }
     
     def _create_file(self, args: dict) -> dict:
@@ -132,12 +143,37 @@ class EnhancedStorageNode:
         if file_size > available:
             return {"success": False, "error": "Insufficient storage"}
         
-        # Create file
+        # Create file with actual content
         file_path = os.path.join(self.storage_path, file_name)
         
-        # Create dummy file content
-        with open(file_path, 'wb') as f:
-            f.write(b'0' * file_size)  # Create file with zeros
+        try:
+            # Create actual file with readable content
+            with open(file_path, 'w') as f:
+                # Write file metadata and some content
+                f.write(f"File: {file_name}\n")
+                f.write(f"Created: {time.ctime()}\n")
+                f.write(f"Size: {file_size} bytes\n")
+                f.write(f"Node: {self.node_id}\n")
+                f.write(f"ID: {file_id}\n")
+                f.write("-" * 40 + "\n")
+                
+                # Add some dummy content to reach the specified size
+                content_size = file_size - f.tell()
+                if content_size > 0:
+                    # Write pattern that shows this is test data
+                    pattern = f"This is test data for {file_name} stored on node {self.node_id}. "
+                    repetitions = max(1, content_size // len(pattern))
+                    f.write((pattern * repetitions)[:content_size])
+            
+            # Verify file was created and has correct size
+            actual_size = os.path.getsize(file_path)
+            if actual_size != file_size:
+                # Adjust file size if needed
+                with open(file_path, 'a') as f:
+                    f.write(' ' * (file_size - actual_size))
+        
+        except Exception as e:
+            return {"success": False, "error": f"File creation failed: {str(e)}"}
         
         # Register file
         self.files[file_id] = {
@@ -145,12 +181,15 @@ class EnhancedStorageNode:
             "file_name": file_name,
             "file_size": file_size,
             "file_path": file_path,
-            "created_at": time.time()
+            "created_at": time.time(),
+            "actual_size": os.path.getsize(file_path)
         }
         
         print(f"📁 Created {file_name} ({file_size/1024/1024:.2f} MB) on {self.node_id}")
+        print(f"   📍 Location: {file_path}")
+        print(f"   📊 Actual size: {os.path.getsize(file_path)} bytes")
         
-        return {"success": True, "file_id": file_id}
+        return {"success": True, "file_id": file_id, "file_path": file_path}
     
     def _delete_file(self, args: dict) -> dict:
         """Delete a file from this node"""
@@ -160,29 +199,51 @@ class EnhancedStorageNode:
             return {"success": False, "error": "File not found"}
         
         file_info = self.files[file_id]
+        file_path = file_info['file_path']
         
         # Delete physical file
-        if os.path.exists(file_info['file_path']):
-            os.remove(file_info['file_path'])
+        try:
+            if os.path.exists(file_path):
+                os.remove(file_path)
+                print(f"🗑️  Deleted physical file: {file_path}")
+            else:
+                print(f"⚠️  File not found at path: {file_path}")
+        except Exception as e:
+            print(f"❌ Error deleting file: {e}")
         
         # Remove from registry
         del self.files[file_id]
         
-        print(f"🗑️  Deleted {file_info['file_name']} from {self.node_id}")
+        print(f"🗑️  Removed {file_info['file_name']} from {self.node_id} registry")
         return {"success": True}
     
     def _list_files(self) -> dict:
         """List all files on this node"""
+        # Also check physical files in storage directory
+        physical_files = []
+        if os.path.exists(self.storage_path):
+            physical_files = [f for f in os.listdir(self.storage_path) 
+                            if os.path.isfile(os.path.join(self.storage_path, f))]
+        
         files_list = []
         for file_id, file_info in self.files.items():
+            file_exists = os.path.exists(file_info['file_path'])
             files_list.append({
                 "file_id": file_id,
                 "file_name": file_info['file_name'],
                 "file_size": file_info['file_size'],
-                "created_at": file_info['created_at']
+                "actual_size": file_info.get('actual_size', 0),
+                "created_at": file_info['created_at'],
+                "file_path": file_info['file_path'],
+                "physical_file_exists": file_exists
             })
         
-        return {"success": True, "files": files_list}
+        return {
+            "success": True, 
+            "files": files_list,
+            "storage_path": self.storage_path,
+            "physical_files_count": len(physical_files)
+        }
     
     def _file_info(self, args: dict) -> dict:
         """Get information about a specific file"""
@@ -191,7 +252,12 @@ class EnhancedStorageNode:
         
         for fid, file_info in self.files.items():
             if fid == file_id or file_info['file_name'] == file_name:
-                return {"success": True, "file": file_info}
+                file_exists = os.path.exists(file_info['file_path'])
+                return {
+                    "success": True, 
+                    "file": file_info,
+                    "physical_file_exists": file_exists
+                }
         
         return {"success": False, "error": "File not found"}
     
@@ -201,14 +267,28 @@ class EnhancedStorageNode:
         used_storage = sum(file_info['file_size'] for file_info in self.files.values())
         available_storage = total_storage - used_storage
         
+        # Count physical files
+        physical_files = []
+        if os.path.exists(self.storage_path):
+            physical_files = [f for f in os.listdir(self.storage_path) 
+                            if os.path.isfile(os.path.join(self.storage_path, f))]
+        
         return {
             "success": True,
             "total_bytes": total_storage,
             "used_bytes": used_storage,
             "available_bytes": available_storage,
             "utilization_percent": (used_storage / total_storage) * 100,
-            "files_count": len(self.files)
+            "files_count": len(self.files),
+            "physical_files_count": len(physical_files),
+            "storage_path": self.storage_path
         }
+    
+    def _transfer_chunk(self, args: dict) -> dict:
+        """Handle file chunk transfer (for replication)"""
+        # This would handle actual file transfers between nodes
+        # For now, we'll just create the file locally
+        return self._create_file(args)
     
     def _get_available_storage(self) -> float:
         """Calculate available storage in bytes"""
@@ -253,7 +333,8 @@ class EnhancedNodeServer:
                 "cpu": self.node.cpu,
                 "memory": self.node.memory,
                 "storage": self.node.storage,
-                "bandwidth": self.node.bandwidth
+                "bandwidth": self.node.bandwidth,
+                "address": f"localhost:{node_port}"
             }
             
             request = {
@@ -272,6 +353,7 @@ class EnhancedNodeServer:
             
             if response.get('success'):
                 self.registered = True
+                print(f"✅ Node {self.node.node_id} registered with network controller")
                 return True
             else:
                 print(f"❌ Failed to register: {response}")

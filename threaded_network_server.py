@@ -126,7 +126,7 @@ class EnhancedNetworkController:
             elif command == "list_nodes":
                 return self._list_nodes()
             elif command == "create_file":
-                return self._create_file(args)
+                return self._create_file_actual(args)  # Use the actual file creation method
             elif command == "delete_file":
                 return self._delete_file(args)
             elif command == "list_files":
@@ -224,8 +224,8 @@ class EnhancedNetworkController:
             
             return {"success": True, "nodes": nodes_info}
     
-    def _create_file(self, args: dict) -> dict:
-        """Create a file on a node with automatic replication"""
+    def _create_file_actual(self, args: dict) -> dict:
+        """Actually create file on specific node"""
         node_id = args['node_id']
         file_name = args['file_name']
         file_size = args['file_size']
@@ -233,29 +233,61 @@ class EnhancedNetworkController:
         if node_id not in self.nodes or self.node_status.get(node_id) != "online":
             return {"success": False, "error": "Node not available"}
         
-        # Generate file ID
-        file_id = hashlib.md5(f"{file_name}-{time.time()}".encode()).hexdigest()[:8]
+        # Get node information to connect to it
+        node_info = self.nodes[node_id]
+        node_address = node_info.get('address', 'localhost:0').split(':')
+        node_host = node_address[0]
+        node_port = int(node_address[1])
         
-        with self.lock:
-            self.files[file_id] = {
-                "file_id": file_id,
-                "file_name": file_name,
-                "file_size": file_size,
-                "owner_node": node_id,
-                "created_at": time.time()
+        try:
+            # Connect to the actual node to create the file
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(10)
+            sock.connect((node_host, node_port))
+            
+            request = {
+                "command": "create_file",
+                "args": {
+                    "file_name": file_name,
+                    "file_size": file_size
+                }
             }
             
-            # Initial replica on owner node
-            self.file_replicas[file_id] = [node_id]
-        
-        print(f"📁 {file_name} ({file_size/1024/1024:.2f} MB) created on {node_id}")
-        
-        # Schedule replication to other nodes
-        self._schedule_replication(file_id)
-        
-        # Show minimal status for file creation
-        self._display_minimal_status()
-        return {"success": True, "file_id": file_id}
+            sock.sendall(json.dumps(request).encode('utf-8'))
+            data = sock.recv(4096)
+            response = json.loads(data.decode('utf-8'))
+            
+            sock.close()
+            
+            if response.get('success'):
+                file_id = response['file_id']
+                
+                with self.lock:
+                    self.files[file_id] = {
+                        "file_id": file_id,
+                        "file_name": file_name,
+                        "file_size": file_size,
+                        "owner_node": node_id,
+                        "created_at": time.time()
+                    }
+                    
+                    # Initial replica on owner node
+                    self.file_replicas[file_id] = [node_id]
+                
+                print(f"📁 {file_name} ({file_size/1024/1024:.2f} MB) created on {node_id}")
+                print(f"   📍 File ID: {file_id}")
+                print(f"   📍 File Path: {response.get('file_path', 'Unknown')}")
+                
+                # Schedule replication to other nodes
+                self._schedule_replication(file_id)
+                
+                self._display_minimal_status()
+                return {"success": True, "file_id": file_id, "file_path": response.get('file_path')}
+            else:
+                return {"success": False, "error": response.get('error', 'Unknown error')}
+                
+        except Exception as e:
+            return {"success": False, "error": f"Failed to connect to node: {str(e)}"}
     
     def _schedule_replication(self, file_id: str):
         """Schedule file replication to other nodes"""

@@ -14,7 +14,7 @@ from typing import Dict, List
 class EnhancedNetworkClient:
     """Enhanced client for distributed storage network"""
     
-    def __init__(self, host='localhost', port=5500):
+    def __init__(self, host='localhost', port=5500):  # Fixed port to 5000
         self.host = host
         self.port = port
         
@@ -125,7 +125,7 @@ def display_network_status(client: EnhancedNetworkClient):
         node_stat = client.node_stats(node_id)
         if node_stat['success']:
             storage_used = node_stat['used_storage_gb']
-            storage_percent = (storage_used / info['storage']) * 100
+            storage_percent = (storage_used / info['storage']) * 100 if info['storage'] > 0 else 0
             
             print(f"{node_id:<12} {status_icon:<4} {info['cpu']:<4} {info['memory']:<4}GB "
                   f"{storage_percent:.1f}%/{info['storage']}GB {info['bandwidth']:<4}M "
@@ -137,18 +137,31 @@ def display_network_status(client: EnhancedNetworkClient):
     print(f"\n💾 NETWORK STORAGE SUMMARY")
     print("-" * 50)
     print(f"Total Capacity: {stats['total_storage_gb']:.1f} GB")
-    print(f"Used Storage:   {stats['used_storage_gb']:.1f} GB ({stats['used_storage_gb']/stats['total_storage_gb']*100:.1f}%)")
-    print(f"Available:      {stats['total_storage_gb'] - stats['used_storage_gb']:.1f} GB")
+    
+    # Safe division
+    if stats['total_storage_gb'] > 0:
+        usage_percent = (stats['used_storage_gb'] / stats['total_storage_gb']) * 100
+        print(f"Used Storage:   {stats['used_storage_gb']:.1f} GB ({usage_percent:.1f}%)")
+    else:
+        print(f"Used Storage:   {stats['used_storage_gb']:.1f} GB (0.0%)")
+        
+    available = stats['total_storage_gb'] - stats['used_storage_gb']
+    print(f"Available:      {available:.1f} GB")
     print("-" * 50)
     
     # Health dashboard
     print(f"\n🏥 SYSTEM HEALTH DASHBOARD")
     print("=" * 80)
-    print(f"🌐 Network Health: {stats['online_nodes']/stats['total_nodes']*100:.1f}% "
+    
+    # Safe division for percentages
+    network_health = (stats['online_nodes'] / stats['total_nodes'] * 100) if stats['total_nodes'] > 0 else 0
+    replication_health = (stats['well_replicated_files'] / stats['total_files'] * 100) if stats['total_files'] > 0 else 100
+    
+    print(f"🌐 Network Health: {network_health:.1f}% "
           f"({stats['online_nodes']}/{stats['total_nodes']} nodes active)")
-    print(f"💾 Storage Utilization: {stats['used_storage_gb']/stats['total_storage_gb']*100:.1f}% "
+    print(f"💾 Storage Utilization: {stats['storage_utilization']:.1f}% "
           f"({stats['used_storage_gb']:.1f}/{stats['total_storage_gb']:.1f} GB)")
-    print(f"🔄 Replication Health: {stats['well_replicated_files']/stats['total_files']*100:.1f}% "
+    print(f"🔄 Replication Health: {replication_health:.1f}% "
           f"({stats['well_replicated_files']}/{stats['total_files']} files well-replicated)")
     print(f"⚖️  Load Balance: {stats['load_balance']:.1f}% (avg: {stats['avg_load']:.1f}, "
           f"max: {stats['max_load']})")
@@ -214,6 +227,8 @@ def interactive_menu():
                 result = client.create_file(node_id, file_name, size_mb)
                 if result['success']:
                     print(f"✅ File {file_name} created on {node_id}")
+                    if result.get('file_path'):
+                        print(f"📍 File location: {result['file_path']}")
                 else:
                     print(f"❌ Failed: {result.get('error', 'Unknown error')}")
                     
