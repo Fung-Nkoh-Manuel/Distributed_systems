@@ -5,26 +5,45 @@ import cloudsecurity_pb2
 import cloudsecurity_pb2_grpc
 from utils import send_otp
 
-class UserServiceSkeleton(cloudsecurity_pb2_grpc.UserServiceServicer):
-    def login(self, request, context) -> cloudsecurity_pb2.Response:
-        print(f'new incoming request ... \nrequest: {request}')
-        result = self.checkId(request.login, request.password)
-        return cloudsecurity_pb2.Response(result=result)
+# Temporary store for OTPs (in-memory dictionary)
+otp_store = {}
 
-    def checkId(self, login, pwd) -> str:
-        credentials = {} # dictionary to store credentials
+class UserServiceSkeleton(cloudsecurity_pb2_grpc.UserServiceServicer):
+    def signup(self, request, context):
+        # Hash the password
+        hashed_pw = bcrypt.hashpw(request.password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+        
+        # Save to credentials file
+        with open('credentials', 'a') as file:
+            file.write(f"{request.login},{request.email},{hashed_pw}\n")
+        
+        return cloudsecurity_pb2.Response(result="Signup successful")
+
+    def login(self, request, context):
+        credentials = {}
         emails = {}
-        file_path = 'credentials'
-        with open(file_path, 'r') as file:
+        with open('credentials', 'r') as file:
             for line in file:
                 username, email, password = line.strip().split(',')
                 credentials[username] = password
                 emails[username] = email
-        if (credentials.get(login,None) and 
-            bcrypt.checkpw(pwd.encode('utf-8'), credentials[login].encode('utf-8'))):
-            return send_otp(emails[login])
+
+        # Step 1: check username/password
+        if not (credentials.get(request.login) and 
+                bcrypt.checkpw(request.password.encode('utf-8'), credentials[request.login].encode('utf-8'))):
+            return cloudsecurity_pb2.Response(result="Unauthorized")
+
+        # Step 2: if OTP not provided, send it
+        if not request.otp:
+            otp = send_otp(emails[request.login])
+            otp_store[request.login] = otp
+            return cloudsecurity_pb2.Response(result="OTP sent to your email")
+
+        # Step 3: if OTP provided, verify it
+        if otp_store.get(request.login) == request.otp:
+            return cloudsecurity_pb2.Response(result="Login successful")
         else:
-            return "Unauthorized"
+            return cloudsecurity_pb2.Response(result="Invalid OTP")
 
 def run():
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
