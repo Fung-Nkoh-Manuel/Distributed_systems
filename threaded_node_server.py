@@ -32,6 +32,7 @@ class EnhancedStorageNode:
         
         self.files: Dict[str, dict] = {}
         self.running = False
+        self.status = "online"  # Track node status
         
         print(f"📁 Storage directory created: {self.storage_path}")
 
@@ -46,6 +47,7 @@ class EnhancedStorageNode:
         
         print(f"🖥️  Node {self.node_id} started on {host}:{self.actual_port}")
         print(f"📁 Storage path: {self.storage_path}")
+        print(f"🟢 Node {self.node_id} is ONLINE")
         
         # Start accepting connections
         accept_thread = threading.Thread(target=self._accept_connections, daemon=True)
@@ -59,6 +61,20 @@ class EnhancedStorageNode:
         if self.server_socket:
             self.server_socket.close()
         print(f"🛑 Node {self.node_id} stopped")
+        
+    def set_online(self):
+        """Set node online"""
+        if self.status != "online":
+            self.status = "online"
+            print(f"🎯 NODE {self.node_id} STATUS: 🟢 ONLINE")
+        return {"success": True, "message": f"Node {self.node_id} is online"}
+    
+    def set_offline(self):
+        """Set node offline"""
+        if self.status != "offline":
+            self.status = "offline"
+            print(f"🎯 NODE {self.node_id} STATUS: 🔴 OFFLINE")
+        return {"success": True, "message": f"Node {self.node_id} is offline"}
         
     def _accept_connections(self):
         """Accept incoming connections"""
@@ -95,6 +111,12 @@ class EnhancedStorageNode:
                 print(f"✅ {self.node_id} successfully created file: {args.get('file_name')}")
             elif command == "delete_file":
                 print(f"✅ {self.node_id} successfully deleted file: {args.get('file_id')}")
+            elif command == "download_file":
+                print(f"✅ {self.node_id} successfully downloaded file: {args.get('file_name')}")
+            elif command == "set_online":
+                print(f"🎯 {self.node_id} status changed: 🟢 ONLINE")
+            elif command == "set_offline":
+                print(f"🎯 {self.node_id} status changed: 🔴 OFFLINE")
             
         except Exception as e:
             print(f"❌ Node {self.node_id} client error: {e}")
@@ -120,6 +142,14 @@ class EnhancedStorageNode:
                 return {"status": "healthy", "node_id": self.node_id}
             elif command == "transfer_chunk":
                 return self._transfer_chunk(args)
+            elif command == "download_file":
+                return self._download_file(args)
+            elif command == "transfer_file":
+                return self._transfer_file(args)
+            elif command == "set_online":
+                return self.set_online()
+            elif command == "set_offline":
+                return self.set_offline()
             else:
                 return {"success": False, "error": f"Unknown command: {command}"}
                 
@@ -137,7 +167,8 @@ class EnhancedStorageNode:
             "bandwidth": self.bandwidth,
             "address": f"localhost:{self.actual_port}",
             "files_count": len(self.files),
-            "storage_path": self.storage_path
+            "storage_path": self.storage_path,
+            "status": self.status
         }
     
     def _create_file(self, args: dict) -> dict:
@@ -226,6 +257,131 @@ class EnhancedStorageNode:
         
         print(f"🗑️  {self.node_id} removed {file_name} from registry")
         return {"success": True, "message": f"File {file_name} deleted from {self.node_id}"}
+    
+    def _download_file(self, args: dict) -> dict:
+        """Download a file from another node"""
+        file_name = args['file_name']
+        file_size = args['file_size']
+        source_node = args['source_node']
+        source_host = args['source_host']
+        source_port = args['source_port']
+        
+        print(f"📥 {self.node_id} downloading {file_name} from {source_node}...")
+        
+        # Check storage availability
+        available = self._get_available_storage()
+        if file_size > available:
+            return {"success": False, "error": "Insufficient storage for download"}
+        
+        try:
+            # Connect to source node to get file content
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(30)
+            sock.connect((source_host, source_port))
+            
+            # Request file transfer from source node
+            transfer_request = {
+                "command": "transfer_file",
+                "args": {
+                    "file_name": file_name,
+                    "target_node": self.node_id
+                }
+            }
+            
+            sock.sendall(json.dumps(transfer_request).encode('utf-8'))
+            data = sock.recv(4096)
+            transfer_response = json.loads(data.decode('utf-8'))
+            
+            sock.close()
+            
+            if transfer_response.get('success'):
+                # Create the file locally with the same content
+                file_path = os.path.join(self.storage_path, file_name)
+                file_id = hashlib.md5(f"{file_name}-{time.time()}".encode()).hexdigest()[:8]
+                
+                # Create file with the same structure as source
+                with open(file_path, 'w') as f:
+                    f.write(f"File: {file_name}\n")
+                    f.write(f"Created: {time.ctime()}\n")
+                    f.write(f"Size: {file_size} bytes\n")
+                    f.write(f"Node: {self.node_id}\n")
+                    f.write(f"ID: {file_id}\n")
+                    f.write(f"Source: {source_node}\n")
+                    f.write("-" * 40 + "\n")
+                    
+                    # Add content to reach specified size
+                    content_size = file_size - f.tell()
+                    if content_size > 0:
+                        pattern = f"This is downloaded data for {file_name} from {source_node} to {self.node_id}. "
+                        repetitions = max(1, content_size // len(pattern))
+                        f.write((pattern * repetitions)[:content_size])
+                
+                # Register the downloaded file
+                self.files[file_id] = {
+                    "file_id": file_id,
+                    "file_name": file_name,
+                    "file_size": file_size,
+                    "file_path": file_path,
+                    "created_at": time.time(),
+                    "actual_size": os.path.getsize(file_path),
+                    "source_node": source_node
+                }
+                
+                print(f"✅ {self.node_id} successfully downloaded {file_name} from {source_node}")
+                print(f"   📍 Location: {file_path}")
+                return {"success": True, "file_id": file_id, "file_path": file_path}
+            else:
+                return {"success": False, "error": transfer_response.get('error', 'Download failed')}
+                
+        except Exception as e:
+            return {"success": False, "error": f"Download failed: {str(e)}"}
+    
+    def _transfer_file(self, args: dict) -> dict:
+        """Transfer file to another node (source node perspective)"""
+        file_name = args['file_name']
+        target_node = args.get('target_node', 'unknown')
+        
+        # Find the file on this node
+        file_info = None
+        file_id = None
+        for fid, info in self.files.items():
+            if info['file_name'] == file_name:
+                file_info = info
+                file_id = fid
+                break
+        
+        if not file_info:
+            return {"success": False, "error": "File not found on this node"}
+        
+        print(f"📤 {self.node_id} transferring {file_name} to {target_node}...")
+        
+        # Check if file exists physically
+        if not os.path.exists(file_info['file_path']):
+            return {"success": False, "error": "File not found on disk"}
+        
+        try:
+            # Read file content to simulate transfer
+            with open(file_info['file_path'], 'r') as f:
+                file_content = f.read()
+            
+            # Simulate transfer time based on file size and bandwidth
+            transfer_time = file_info['file_size'] / (self.bandwidth * 1000000)  # Convert Mbps to bytes/sec
+            if transfer_time > 0.1:  # Cap simulation time
+                transfer_time = 0.1
+            
+            print(f"   ⏳ Transfer simulation: {file_info['file_size']/1024/1024:.2f} MB, ~{transfer_time:.2f}s")
+            time.sleep(transfer_time)
+            
+            print(f"✅ {self.node_id} successfully transferred {file_name} to {target_node}")
+            return {
+                "success": True, 
+                "message": f"File {file_name} transferred successfully",
+                "file_size": file_info['file_size'],
+                "file_content_preview": file_content[:100] + "..." if len(file_content) > 100 else file_content
+            }
+            
+        except Exception as e:
+            return {"success": False, "error": f"Transfer failed: {str(e)}"}
     
     def _list_files(self) -> dict:
         """List all files on this node"""
@@ -323,6 +479,10 @@ class EnhancedNodeServer:
         # Register with network
         self._register_with_network(actual_port)
         
+        # Start interactive menu in a separate thread
+        menu_thread = threading.Thread(target=self._interactive_menu, daemon=True)
+        menu_thread.start()
+        
         return actual_port
         
     def stop(self):
@@ -397,6 +557,275 @@ class EnhancedNodeServer:
         except Exception as e:
             print(f"❌ Network unregistration error: {e}")
 
+    def _interactive_menu(self):
+        """Interactive menu for node operations"""
+        time.sleep(2)  # Wait for initialization
+        
+        while True:
+            print(f"\n🎯 NODE {self.node.node_id} - COMMAND MENU")
+            print("=" * 50)
+            print("1. 📊 Node Status")
+            print("2. 📁 Create File")
+            print("3. 🗑️  Delete File")
+            print("4. 📋 List Files")
+            print("5. 💾 Storage Stats")
+            print("6. 🟢 Set Online")
+            print("7. 🔴 Set Offline")
+            print("8. 🌐 Network Status")
+            print("9. 📥 Download File")
+            print("0. 🚪 Exit Node")
+            print("-" * 50)
+            
+            try:
+                choice = input("Choose option (0-9): ").strip()
+                
+                if choice == '1':
+                    self._display_node_status()
+                elif choice == '2':
+                    self._create_file_interactive()
+                elif choice == '3':
+                    self._delete_file_interactive()
+                elif choice == '4':
+                    self._list_files_interactive()
+                elif choice == '5':
+                    self._storage_stats_interactive()
+                elif choice == '6':
+                    self._set_online_interactive()
+                elif choice == '7':
+                    self._set_offline_interactive()
+                elif choice == '8':
+                    self._network_status_interactive()
+                elif choice == '9':
+                    self._download_file_interactive()
+                elif choice == '0':
+                    print(f"👋 Shutting down node {self.node.node_id}...")
+                    self.stop()
+                    break
+                else:
+                    print("❌ Invalid choice")
+                    
+            except KeyboardInterrupt:
+                print(f"\n👋 Shutting down node {self.node.node_id}...")
+                self.stop()
+                break
+            except Exception as e:
+                print(f"❌ Error: {e}")
+    
+    def _display_node_status(self):
+        """Display node status"""
+        info = self.node._get_node_info()
+        if info['success']:
+            print(f"\n🖥️  NODE {self.node.node_id} STATUS")
+            print("=" * 40)
+            print(f"Status: {'🟢 ONLINE' if self.node.status == 'online' else '🔴 OFFLINE'}")
+            print(f"CPU: {info['cpu']} vCPUs")
+            print(f"Memory: {info['memory']} GB")
+            print(f"Storage: {info['storage']} GB")
+            print(f"Bandwidth: {info['bandwidth']} Mbps")
+            print(f"Files: {info['files_count']}")
+            print(f"Port: {self.node.actual_port}")
+            print(f"Storage Path: {info['storage_path']}")
+    
+    def _create_file_interactive(self):
+        """Create file interactively"""
+        try:
+            file_name = input("File name: ").strip()
+            size_mb = float(input("Size (MB): ").strip())
+            
+            result = self.node._create_file({
+                "file_name": file_name,
+                "file_size": int(size_mb * 1024 * 1024)
+            })
+            
+            if result['success']:
+                print(f"✅ File {file_name} created successfully")
+                print(f"📍 Location: {result.get('file_path')}")
+            else:
+                print(f"❌ Failed: {result.get('error')}")
+                
+        except Exception as e:
+            print(f"❌ Error: {e}")
+    
+    def _delete_file_interactive(self):
+        """Delete file interactively"""
+        files_result = self.node._list_files()
+        if not files_result['success'] or not files_result['files']:
+            print("❌ No files available to delete")
+            return
+            
+        print("\n📂 Available files:")
+        for i, file_info in enumerate(files_result['files']):
+            print(f"{i+1}. {file_info['file_name']} (ID: {file_info['file_id']})")
+        
+        try:
+            file_idx = int(input("File number to delete: ")) - 1
+            if 0 <= file_idx < len(files_result['files']):
+                file_id = files_result['files'][file_idx]['file_id']
+                result = self.node._delete_file({"file_id": file_id})
+                if result['success']:
+                    print("✅ File deleted successfully")
+                else:
+                    print(f"❌ Failed: {result.get('error')}")
+            else:
+                print("❌ Invalid file number")
+        except Exception as e:
+            print(f"❌ Error: {e}")
+    
+    def _list_files_interactive(self):
+        """List files interactively"""
+        result = self.node._list_files()
+        if result['success']:
+            files = result['files']
+            if files:
+                print(f"\n📂 FILES ON {self.node.node_id} ({len(files)} total)")
+                print("=" * 60)
+                for file_info in files:
+                    size_mb = file_info['file_size'] / (1024 * 1024)
+                    print(f"📄 {file_info['file_name']} ({size_mb:.2f}MB)")
+                    print(f"   ID: {file_info['file_id']}")
+                    print(f"   Path: {file_info['file_path']}")
+                    print(f"   Created: {time.ctime(file_info['created_at'])}")
+                    print()
+            else:
+                print("📂 No files found")
+        else:
+            print("❌ Failed to list files")
+    
+    def _storage_stats_interactive(self):
+        """Display storage stats interactively"""
+        result = self.node._storage_stats()
+        if result['success']:
+            print(f"\n💾 STORAGE STATS - {self.node.node_id}")
+            print("=" * 40)
+            used_gb = result['used_bytes'] / (1024**3)
+            total_gb = result['total_bytes'] / (1024**3)
+            available_gb = result['available_bytes'] / (1024**3)
+            
+            print(f"Total: {total_gb:.2f} GB")
+            print(f"Used: {used_gb:.2f} GB ({result['utilization_percent']:.1f}%)")
+            print(f"Available: {available_gb:.2f} GB")
+            print(f"Files: {result['files_count']}")
+            print(f"Physical Files: {result['physical_files_count']}")
+        else:
+            print("❌ Failed to get storage stats")
+    
+    def _set_online_interactive(self):
+        """Set node online interactively"""
+        result = self.node.set_online()
+        if result['success']:
+            print(f"✅ {result['message']}")
+        else:
+            print(f"❌ Failed: {result.get('error')}")
+    
+    def _set_offline_interactive(self):
+        """Set node offline interactively"""
+        result = self.node.set_offline()
+        if result['success']:
+            print(f"✅ {result['message']}")
+        else:
+            print(f"❌ Failed: {result.get('error')}")
+    
+    def _network_status_interactive(self):
+        """Get network status from controller"""
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(10)
+            sock.connect((self.network_host, self.network_port))
+            
+            request = {
+                "command": "network_stats",
+                "args": {}
+            }
+            
+            sock.sendall(json.dumps(request).encode('utf-8'))
+            data = sock.recv(65536)
+            response = json.loads(data.decode('utf-8'))
+            
+            sock.close()
+            
+            if response.get('success'):
+                stats = response
+                print(f"\n🌐 NETWORK STATUS")
+                print("=" * 40)
+                print(f"Total Nodes: {stats['total_nodes']}")
+                print(f"Online Nodes: {stats['online_nodes']}")
+                print(f"Total Files: {stats['total_files']}")
+                print(f"Storage Used: {stats['used_storage_gb']:.2f} GB")
+                print(f"Total Storage: {stats['total_storage_gb']:.2f} GB")
+            else:
+                print(f"❌ Failed to get network status: {response.get('error')}")
+                
+        except Exception as e:
+            print(f"❌ Network error: {e}")
+    
+    def _download_file_interactive(self):
+        """Download file from another node"""
+        try:
+            # First get network files
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(10)
+            sock.connect((self.network_host, self.network_port))
+            
+            request = {
+                "command": "list_files",
+                "args": {}
+            }
+            
+            sock.sendall(json.dumps(request).encode('utf-8'))
+            data = sock.recv(65536)
+            response = json.loads(data.decode('utf-8'))
+            
+            sock.close()
+            
+            if not response.get('success') or not response.get('files'):
+                print("❌ No files available in network")
+                return
+            
+            files = response['files']
+            print("\n📂 Available files in network:")
+            for i, file_info in enumerate(files):
+                size_mb = file_info['file_size'] / (1024 * 1024)
+                print(f"{i+1}. {file_info['file_name']} ({size_mb:.2f}MB) - Available on: {', '.join(file_info['available_on'])}")
+            
+            file_idx = int(input("File number to download: ")) - 1
+            if 0 <= file_idx < len(files):
+                file_info = files[file_idx]
+                source_node = input(f"Source node ({', '.join(file_info['available_on'])}): ").strip()
+                
+                if source_node not in file_info['available_on']:
+                    print("❌ File not available on that node")
+                    return
+                
+                # Use controller to handle the download
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(30)
+                sock.connect((self.network_host, self.network_port))
+                
+                download_request = {
+                    "command": "download_file",
+                    "args": {
+                        "target_node": self.node.node_id,
+                        "file_name": file_info['file_name'],
+                        "source_node": source_node
+                    }
+                }
+                
+                sock.sendall(json.dumps(download_request).encode('utf-8'))
+                data = sock.recv(4096)
+                download_response = json.loads(data.decode('utf-8'))
+                
+                sock.close()
+                
+                if download_response.get('success'):
+                    print(f"✅ {download_response.get('message')}")
+                else:
+                    print(f"❌ Download failed: {download_response.get('error')}")
+            else:
+                print("❌ Invalid file number")
+                
+        except Exception as e:
+            print(f"❌ Error: {e}")
+
 def main():
     parser = argparse.ArgumentParser(description='Enhanced Storage Node Server')
     parser.add_argument('--node-id', required=True, help='Node identifier')
@@ -429,8 +858,7 @@ def main():
         # Start server
         server.start(args.host, 0)  # Auto-assign port
         
-        print(f"✅ Node {args.node_id} ready!")
-        print("Press Ctrl+C to stop")
+        print(f"✅ Node {args.node_id} ready with interactive menu!")
         
         # Keep running
         while True:

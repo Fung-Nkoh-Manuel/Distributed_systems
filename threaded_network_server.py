@@ -128,13 +128,13 @@ class EnhancedNetworkController:
             elif command == "create_file":
                 return self._create_file_actual(args)
             elif command == "delete_file":
-                return self._delete_file_actual(args)  # Use actual delete method
+                return self._delete_file_actual(args)
             elif command == "list_files":
                 return self._list_files(args)
             elif command == "transfer_file":
-                return self._transfer_file(args)
+                return self._transfer_file_actual(args)
             elif command == "download_file":
-                return self._download_file(args)
+                return self._download_file_actual(args)
             elif command == "network_stats":
                 return self._get_network_stats()
             elif command == "node_stats":
@@ -349,6 +349,93 @@ class EnhancedNetworkController:
             self._display_minimal_status()
             return {"success": True, "message": f"File {file_name} deleted from {deleted_count} nodes"}
     
+    def _transfer_file_actual(self, args: dict) -> dict:
+        """Actually transfer file between nodes"""
+        source_node = args['source_node']
+        target_node = args['target_node']
+        file_name = args['file_name']
+        
+        # Find file
+        file_id = None
+        file_info = None
+        for fid, info in self.files.items():
+            if info['file_name'] == file_name and source_node in self.file_replicas.get(fid, []):
+                file_id = fid
+                file_info = info
+                break
+        
+        if not file_id:
+            return {"success": False, "error": "File not found on source node"}
+        
+        if target_node not in self.nodes or self.node_status.get(target_node) != "online":
+            return {"success": False, "error": "Target node not available"}
+        
+        print(f"🔄 Transferring {file_name} from {source_node} to {target_node}...")
+        
+        # Get source node info
+        source_info = self.nodes[source_node]
+        source_address = source_info.get('address', 'localhost:0').split(':')
+        source_host = source_address[0]
+        source_port = int(source_address[1])
+        
+        # Get target node info
+        target_info = self.nodes[target_node]
+        target_address = target_info.get('address', 'localhost:0').split(':')
+        target_host = target_address[0]
+        target_port = int(target_address[1])
+        
+        try:
+            # Connect to target node to initiate download
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(30)
+            sock.connect((target_host, target_port))
+            
+            transfer_request = {
+                "command": "download_file",
+                "args": {
+                    "file_name": file_name,
+                    "file_size": file_info['file_size'],
+                    "source_node": source_node,
+                    "source_host": source_host,
+                    "source_port": source_port
+                }
+            }
+            
+            sock.sendall(json.dumps(transfer_request).encode('utf-8'))
+            data = sock.recv(4096)
+            transfer_response = json.loads(data.decode('utf-8'))
+            
+            sock.close()
+            
+            if transfer_response.get('success'):
+                # Add target node as replica
+                with self.lock:
+                    if target_node not in self.file_replicas[file_id]:
+                        self.file_replicas[file_id].append(target_node)
+                        print(f"✅ Added {target_node} as replica for {file_name}")
+                
+                print(f"✅ {target_node} successfully downloaded {file_name} from {source_node}")
+                self._display_minimal_status()
+                return {"success": True, "message": f"File {file_name} transferred to {target_node}"}
+            else:
+                error_msg = transfer_response.get('error', 'Transfer failed')
+                print(f"❌ Transfer failed: {error_msg}")
+                return {"success": False, "error": error_msg}
+                
+        except Exception as e:
+            error_msg = f"Transfer connection failed: {str(e)}"
+            print(f"❌ {error_msg}")
+            return {"success": False, "error": error_msg}
+    
+    def _download_file_actual(self, args: dict) -> dict:
+        """Actually download file to a node"""
+        # This is similar to transfer but with different parameter names
+        return self._transfer_file_actual({
+            "source_node": args.get('source_node'),
+            "target_node": args['target_node'],
+            "file_name": args['file_name']
+        })
+    
     def _schedule_replication(self, file_id: str):
         """Schedule file replication to other nodes"""
         file_info = self.files[file_id]
@@ -370,8 +457,38 @@ class EnhancedNetworkController:
         
         for target_node_id, _ in target_nodes:
             print(f"🔄 Scheduling replication of {file_info['file_name']} to: {target_node_id}")
-            # In a real implementation, this would trigger actual transfer
-            self.file_replicas[file_id].append(target_node_id)
+            
+            # Use a thread to handle replication without blocking
+            replication_thread = threading.Thread(
+                target=self._execute_replication,
+                args=(file_id, target_node_id),
+                daemon=True
+            )
+            replication_thread.start()
+
+    def _execute_replication(self, file_id: str, target_node_id: str):
+        """Execute file replication in a separate thread"""
+        try:
+            time.sleep(1)  # Small delay to ensure everything is ready
+            
+            file_info = self.files[file_id]
+            source_node = self.file_replicas[file_id][0]  # Use first replica as source
+            
+            print(f"🔄 Starting replication: {file_info['file_name']} from {source_node} to {target_node_id}")
+            
+            result = self._transfer_file_actual({
+                "source_node": source_node,
+                "target_node": target_node_id,
+                "file_name": file_info['file_name']
+            })
+            
+            if result['success']:
+                print(f"✅ Replication completed: {file_info['file_name']} to {target_node_id}")
+            else:
+                print(f"❌ Replication failed: {file_info['file_name']} to {target_node_id}: {result.get('error')}")
+                
+        except Exception as e:
+            print(f"❌ Replication error: {e}")
     
     def _schedule_re_replication(self, file_id: str):
         """Re-replicate files when replicas are lost"""
@@ -395,42 +512,6 @@ class EnhancedNetworkController:
                     })
             
             return {"success": True, "files": files_info}
-    
-    def _transfer_file(self, args: dict) -> dict:
-        """Transfer file between nodes"""
-        source_node = args['source_node']
-        target_node = args['target_node']
-        file_name = args['file_name']
-        
-        # Find file
-        file_id = None
-        for fid, info in self.files.items():
-            if info['file_name'] == file_name and source_node in self.file_replicas.get(fid, []):
-                file_id = fid
-                break
-        
-        if not file_id:
-            return {"success": False, "error": "File not found on source node"}
-        
-        # Add target node as replica
-        with self.lock:
-            if target_node not in self.file_replicas[file_id]:
-                self.file_replicas[file_id].append(target_node)
-        
-        print(f"📥 {target_node} downloading {file_name} from {source_node} "
-              f"(BW: {self.nodes[target_node]['bandwidth']}Mbps)")
-        
-        # Simulate transfer completion
-        time.sleep(1)  # Simulate transfer time
-        
-        print(f"✅ {target_node} completed download of {file_name}")
-        self._display_minimal_status()
-        
-        return {"success": True, "message": f"File {file_name} transferred"}
-    
-    def _download_file(self, args: dict) -> dict:
-        """Download file to a node"""
-        return self._transfer_file(args)  # Similar to transfer
     
     def _get_network_stats(self) -> dict:
         """Get comprehensive network statistics"""
@@ -508,8 +589,12 @@ class EnhancedNetworkController:
             
             if node_id in self.node_status:
                 self.node_status[node_id] = "online"
-        
+    
         print(f"🟢 {node_id} set online")
+        
+        # Also notify the actual node
+        self._notify_node_status_change(node_id, "online")
+        
         self._display_minimal_status()
         return {"success": True}
     
@@ -523,10 +608,40 @@ class EnhancedNetworkController:
             
             if node_id in self.node_status:
                 self.node_status[node_id] = "offline"
-        
+    
         print(f"🔴 {node_id} set offline")
+        
+        # Also notify the actual node
+        self._notify_node_status_change(node_id, "offline")
+        
         self._display_minimal_status()
         return {"success": True}
+
+    def _notify_node_status_change(self, node_id: str, status: str):
+        """Notify node about status change"""
+        try:
+            if node_id in self.nodes:
+                node_info = self.nodes[node_id]
+                node_address = node_info.get('address', 'localhost:0').split(':')
+                node_host = node_address[0]
+                node_port = int(node_address[1])
+                
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(5)
+                sock.connect((node_host, node_port))
+                
+                request = {
+                    "command": f"set_{status}",
+                    "args": {}
+                }
+                
+                sock.sendall(json.dumps(request).encode('utf-8'))
+                sock.recv(1024)  # Wait for response
+                sock.close()
+                print(f"📢 Notified node {node_id} about status change: {status}")
+                
+        except Exception as e:
+            print(f"⚠️  Could not notify node {node_id} about status change: {e}")
     
     def _replicate_file(self, args: dict) -> dict:
         """Manually trigger file replication"""
@@ -662,19 +777,31 @@ class EnhancedNetworkController:
     
     def _health_monitoring_loop(self):
         """Health monitoring without continuous status display"""
+        last_warning_time = 0
+        warning_interval = 30  # Only show warnings every 30 seconds
+        
         while self.running:
-            time.sleep(5)  # Check every 5 seconds for health issues
+            time.sleep(10)  # Check every 10 seconds for health issues
             
             try:
+                current_time = time.time()
                 stats = self._get_network_stats()
+                
                 if stats['success']:
-                    # Only show warnings for critical issues
-                    if stats['online_nodes'] == 0 and stats['total_nodes'] > 0:
+                    # Only show warnings for critical issues, and not too frequently
+                    if (stats['online_nodes'] == 0 and stats['total_nodes'] > 0 and 
+                        current_time - last_warning_time > warning_interval):
                         print("⚠️  CRITICAL: All nodes are offline!")
-                    elif stats['well_replicated_files'] < stats['total_files'] and stats['total_files'] > 0:
+                        last_warning_time = current_time
+                        
+                    elif (stats['well_replicated_files'] < stats['total_files'] and 
+                          stats['total_files'] > 0 and 
+                          current_time - last_warning_time > warning_interval):
                         at_risk = stats['total_files'] - stats['well_replicated_files']
                         if at_risk > 0:
                             print(f"⚠️  {at_risk} file(s) have insufficient replication")
+                            last_warning_time = current_time
+                            
             except Exception as e:
                 # Silent error - don't spam console
                 pass

@@ -73,13 +73,15 @@ class EnhancedNetworkClient:
             "file_name": file_name
         })
     
-    def download_file(self, target_node: str, file_name: str, source_node: str) -> dict:
+    def download_file(self, target_node: str, file_name: str, source_node: str = None) -> dict:
         """Download file to a node"""
-        return self._send_request("download_file", {
+        args = {
             "target_node": target_node,
-            "file_name": file_name,
-            "source_node": source_node
-        })
+            "file_name": file_name
+        }
+        if source_node:
+            args["source_node"] = source_node
+        return self._send_request("download_file", args)
     
     def network_stats(self) -> dict:
         """Get network statistics"""
@@ -102,6 +104,10 @@ class EnhancedNetworkClient:
         return self._send_request("set_node_offline", {
             "node_id": node_id
         })
+    
+    def display_status(self) -> dict:
+        """Display full network status"""
+        return self._send_request("display_status")
 
 def display_network_status(client: EnhancedNetworkClient):
     """Display beautiful network status"""
@@ -154,15 +160,18 @@ def display_network_status(client: EnhancedNetworkClient):
     print("=" * 80)
     
     # Safe division for percentages
-    network_health = (stats['online_nodes'] / stats['total_nodes'] * 100) if stats['total_nodes'] > 0 else 0
-    replication_health = (stats['well_replicated_files'] / stats['total_files'] * 100) if stats['total_files'] > 0 else 100
+    total_nodes = stats['total_nodes']
+    total_files = stats['total_files']
+    
+    network_health = (stats['online_nodes'] / total_nodes * 100) if total_nodes > 0 else 0
+    replication_health = (stats['well_replicated_files'] / total_files * 100) if total_files > 0 else 100
     
     print(f"🌐 Network Health: {network_health:.1f}% "
-          f"({stats['online_nodes']}/{stats['total_nodes']} nodes active)")
+          f"({stats['online_nodes']}/{total_nodes} nodes active)")
     print(f"💾 Storage Utilization: {stats['storage_utilization']:.1f}% "
           f"({stats['used_storage_gb']:.1f}/{stats['total_storage_gb']:.1f} GB)")
     print(f"🔄 Replication Health: {replication_health:.1f}% "
-          f"({stats['well_replicated_files']}/{stats['total_files']} files well-replicated)")
+          f"({stats['well_replicated_files']}/{total_files} files well-replicated)")
     print(f"⚖️  Load Balance: {stats['load_balance']:.1f}% (avg: {stats['avg_load']:.1f}, "
           f"max: {stats['max_load']})")
     
@@ -293,6 +302,7 @@ def interactive_menu():
                 target = input("Target node: ").strip()
                 file_name = input("File name: ").strip()
                 source = input("Source node (optional): ").strip()
+                source = source if source else None
                 
                 print(f"🔄 Downloading {file_name} to {target}...")
                 result = client.download_file(target, file_name, source)
