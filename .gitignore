@@ -1,4 +1,11 @@
 __pycache__/
 env/
+cloudsecurity_pb2_grpc.py
+cloudsecurity_pb2.py
+credentials
+ids
+params.py
+grcpauth-firebase-adminsdk-fbsvc-687effe5bf.json
+env
 storage_node1/
 storage_node2/
