@@ -3,8 +3,14 @@ from firebase_admin import credentials, auth
 import cloudsecurity_pb2
 import cloudsecurity_pb2_grpc
 from utils import send_otp
+import os
+from dotenv import load_dotenv
 
-cred = credentials.Certificate("path/to/serviceAccountKey.json")
+# Load environment variables
+load_dotenv('env')
+
+firebase_creds_path = os.getenv('FIREBASE_CREDENTIALS_PATH')
+cred = credentials.Certificate(firebase_creds_path)
 firebase_admin.initialize_app(cred)
 
 otp_store = {}
