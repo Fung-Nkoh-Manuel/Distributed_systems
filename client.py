@@ -2,6 +2,8 @@ import sys
 import grpc
 import cloudsecurity_pb2
 import cloudsecurity_pb2_grpc
+import subprocess
+import time
 
 def run_signup(login, password, email):
     """Signup a new user via Firebase (server handles creation)."""
@@ -11,6 +13,30 @@ def run_signup(login, password, email):
             cloudsecurity_pb2.SignupRequest(login=login, password=password, email=email)
         )
         print(f"Result: {response.result}")
+        return response
+
+def start_storage_node(username, network_port=5500):
+    """Spawn a storage node subprocess for the given username.
+
+    This launches: python threaded_node_server.py --node-id <username> --network-port <network_port>
+    """
+    node_id = username
+    cmd = [
+        sys.executable, 'threaded_node_server.py',
+        '--node-id', node_id,
+        '--network-port', str(network_port)
+    ]
+    try:
+        print(f"\n🖥️  Starting storage node '{node_id}' connecting to port {network_port}...")
+        # Start in background; keep stdout/stderr attached so user can debug if needed
+        proc = subprocess.Popen(cmd)
+        # give node a moment to start and register
+        time.sleep(2)
+        print(f"✅ Storage node '{node_id}' started (pid={proc.pid}).")
+        return proc
+    except Exception as e:
+        print(f"❌ Failed to start storage node: {e}")
+        return None
 
 def run_login(email, password):
     with grpc.insecure_channel('localhost:51234') as channel:
@@ -39,7 +65,12 @@ if __name__ == '__main__':
         login = sys.argv[2]
         password = sys.argv[3]
         email = sys.argv[4]
-        run_signup(login, password, email)
+        resp = run_signup(login, password, email)
+        # If signup succeeded, spawn a storage node that registers with the network
+        if resp and ("success" in resp.result.lower()):
+            start_storage_node(login, network_port=5500)
+        else:
+            print("Signup did not succeed; node not started.")
 
     elif action == "login":
         if len(sys.argv) < 4:
