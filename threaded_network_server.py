@@ -43,7 +43,7 @@ class EnhancedNetworkController:
         
         self.running = False
         self.server_socket = None
-        self.lock = threading.Lock()
+        self.lock = threading.RLock()
         
     def start(self):
         """Start the enhanced network controller"""

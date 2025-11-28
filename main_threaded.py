@@ -113,7 +113,8 @@ def display_network_status(client: EnhancedNetworkClient):
     """Display beautiful network status"""
     stats = client.network_stats()
     if not stats.get('success'):
-        print("❌ Failed to get network status")
+        # Show detailed error returned by the client for easier debugging
+        print(f"❌ Failed to get network status: {stats.get('error', 'Unknown error')}")
         return
     
     nodes = client.list_nodes()
