@@ -143,6 +143,10 @@ class EnhancedNetworkController:
                 return self._set_node_online(args)
             elif command == "set_node_offline":
                 return self._set_node_offline(args)
+            elif command == "register_file":
+                return self._register_file(args)
+            elif command == "unregister_file":
+                return self._unregister_file(args)
             elif command == "replicate_file":
                 return self._replicate_file(args)
             elif command == "display_status":
@@ -278,8 +282,7 @@ class EnhancedNetworkController:
                 print(f"   📍 File ID: {file_id}")
                 print(f"   📍 File Path: {response.get('file_path', 'Unknown')}")
                 
-                # Schedule replication to other nodes
-                self._schedule_replication(file_id)
+                # Replication disabled per user request
                 
                 self._display_minimal_status()
                 return {"success": True, "file_id": file_id, "file_path": response.get('file_path')}
@@ -643,6 +646,59 @@ class EnhancedNetworkController:
         except Exception as e:
             print(f"⚠️  Could not notify node {node_id} about status change: {e}")
     
+    def _register_file(self, args: dict) -> dict:
+        """Register a file that was created locally on a node"""
+        file_id = args['file_id']
+        file_name = args['file_name']
+        file_size = args['file_size']
+        owner_node = args['owner_node']
+        
+        # Check if node exists
+        if owner_node not in self.nodes:
+            return {"success": False, "error": f"Node {owner_node} not found"}
+        
+        with self.lock:
+            # Register the file in network
+            self.files[file_id] = {
+                "file_id": file_id,
+                "file_name": file_name,
+                "file_size": file_size,
+                "owner_node": owner_node,
+                "created_at": time.time()
+            }
+            
+            # Register replica on owner node only
+            self.file_replicas[file_id] = [owner_node]
+        
+        print(f"📁 {file_name} registered from {owner_node}")
+        
+        # Replication disabled per user request
+        
+        return {"success": True, "message": f"File {file_name} registered"}
+    
+    def _unregister_file(self, args: dict) -> dict:
+        """Unregister a file that was deleted from a node"""
+        file_id = args['file_id']
+        node_id = args['node_id']
+        
+        with self.lock:
+            if file_id not in self.files:
+                return {"success": False, "error": f"File {file_id} not found in registry"}
+            
+            file_info = self.files[file_id]
+            file_name = file_info['file_name']
+            
+            # Remove file from registry
+            del self.files[file_id]
+            
+            # Remove from replicas
+            if file_id in self.file_replicas:
+                del self.file_replicas[file_id]
+        
+        print(f"🗑️  {file_name} unregistered from {node_id}")
+        
+        return {"success": True, "message": f"File {file_name} unregistered"}
+    
     def _replicate_file(self, args: dict) -> dict:
         """Manually trigger file replication"""
         file_id = args['file_id']
@@ -793,14 +849,8 @@ class EnhancedNetworkController:
                         current_time - last_warning_time > warning_interval):
                         print("⚠️  CRITICAL: All nodes are offline!")
                         last_warning_time = current_time
-                        
-                    elif (stats['well_replicated_files'] < stats['total_files'] and 
-                          stats['total_files'] > 0 and 
-                          current_time - last_warning_time > warning_interval):
-                        at_risk = stats['total_files'] - stats['well_replicated_files']
-                        if at_risk > 0:
-                            print(f"⚠️  {at_risk} file(s) have insufficient replication")
-                            last_warning_time = current_time
+                    
+                    # Replication health check disabled per user request
                             
             except Exception as e:
                 # Silent error - don't spam console

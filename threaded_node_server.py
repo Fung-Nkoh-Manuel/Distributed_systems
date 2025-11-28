@@ -465,7 +465,7 @@ class EnhancedStorageNode:
 class EnhancedNodeServer:
     """Enhanced node server with network registration"""
     
-    def __init__(self, node: EnhancedStorageNode, network_host='localhost', network_port=5000):
+    def __init__(self, node: EnhancedStorageNode, network_host='localhost', network_port=5500):
         self.node = node
         self.network_host = network_host
         self.network_port = network_port
@@ -640,6 +640,13 @@ class EnhancedNodeServer:
             if result['success']:
                 print(f"✅ File {file_name} created successfully")
                 print(f"📍 Location: {result.get('file_path')}")
+                
+                # Notify network controller about the new file
+                self._notify_network_file_created(
+                    result['file_id'],
+                    file_name,
+                    int(size_mb * 1024 * 1024)
+                )
             else:
                 print(f"❌ Failed: {result.get('error')}")
                 
@@ -661,9 +668,12 @@ class EnhancedNodeServer:
             file_idx = int(input("File number to delete: ")) - 1
             if 0 <= file_idx < len(files_result['files']):
                 file_id = files_result['files'][file_idx]['file_id']
+                file_name = files_result['files'][file_idx]['file_name']
                 result = self.node._delete_file({"file_id": file_id})
                 if result['success']:
                     print("✅ File deleted successfully")
+                    # Notify network controller about the deletion
+                    self._notify_network_file_deleted(file_id, file_name)
                 else:
                     print(f"❌ Failed: {result.get('error')}")
             else:
@@ -714,6 +724,8 @@ class EnhancedNodeServer:
         result = self.node.set_online()
         if result['success']:
             print(f"✅ {result['message']}")
+            # Notify network controller about status change
+            self._notify_network_status_change("online")
         else:
             print(f"❌ Failed: {result.get('error')}")
     
@@ -722,8 +734,39 @@ class EnhancedNodeServer:
         result = self.node.set_offline()
         if result['success']:
             print(f"✅ {result['message']}")
+            # Notify network controller about status change
+            self._notify_network_status_change("offline")
         else:
             print(f"❌ Failed: {result.get('error')}")
+    
+    def _notify_network_status_change(self, status: str):
+        """Notify network controller about node status change"""
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(10)
+            sock.connect((self.network_host, self.network_port))
+            
+            request = {
+                "command": "node_status",
+                "args": {
+                    "node_id": self.node.node_id,
+                    "status": status
+                }
+            }
+            
+            sock.sendall(json.dumps(request).encode('utf-8'))
+            data = sock.recv(1024)
+            response = json.loads(data.decode('utf-8'))
+            
+            sock.close()
+            
+            if response.get('success'):
+                print(f"✅ Network controller notified: node is {status}")
+            else:
+                print(f"⚠️  Warning: Network not notified: {response.get('error')}")
+                
+        except Exception as e:
+            print(f"⚠️  Warning: Could not notify network controller: {e}")
     
     def _network_status_interactive(self):
         """Get network status from controller"""
@@ -757,6 +800,66 @@ class EnhancedNodeServer:
                 
         except Exception as e:
             print(f"❌ Network error: {e}")
+    
+    def _notify_network_file_created(self, file_id: str, file_name: str, file_size: int):
+        """Notify network controller that a file was created locally"""
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(10)
+            sock.connect((self.network_host, self.network_port))
+            
+            request = {
+                "command": "register_file",
+                "args": {
+                    "file_id": file_id,
+                    "file_name": file_name,
+                    "file_size": file_size,
+                    "owner_node": self.node.node_id
+                }
+            }
+            
+            sock.sendall(json.dumps(request).encode('utf-8'))
+            data = sock.recv(1024)
+            response = json.loads(data.decode('utf-8'))
+            
+            sock.close()
+            
+            if response.get('success'):
+                print(f"✅ File registered with network controller")
+            else:
+                print(f"⚠️  Warning: File not registered with network: {response.get('error')}")
+                
+        except Exception as e:
+            print(f"⚠️  Warning: Could not notify network controller: {e}")
+    
+    def _notify_network_file_deleted(self, file_id: str, file_name: str):
+        """Notify network controller that a file was deleted locally"""
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(10)
+            sock.connect((self.network_host, self.network_port))
+            
+            request = {
+                "command": "unregister_file",
+                "args": {
+                    "file_id": file_id,
+                    "node_id": self.node.node_id
+                }
+            }
+            
+            sock.sendall(json.dumps(request).encode('utf-8'))
+            data = sock.recv(1024)
+            response = json.loads(data.decode('utf-8'))
+            
+            sock.close()
+            
+            if response.get('success'):
+                print(f"✅ File unregistered from network controller")
+            else:
+                print(f"⚠️  Warning: File not unregistered from network: {response.get('error')}")
+                
+        except Exception as e:
+            print(f"⚠️  Warning: Could not notify network controller: {e}")
     
     def _download_file_interactive(self):
         """Download file from another node"""
