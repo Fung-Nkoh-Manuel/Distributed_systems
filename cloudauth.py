@@ -8,6 +8,7 @@ import subprocess
 import time
 import sys
 import socket
+import signal
 
 # Firebase imports
 import firebase_admin
@@ -19,6 +20,9 @@ firebase_admin.initialize_app(cred)
 
 # Temporary store for OTPs
 otp_store = {}
+
+# Global variable to track network controller process
+network_controller_proc = None
 
 class UserServiceSkeleton(cloudsecurity_pb2_grpc.UserServiceServicer):
     def signup(self, request, context):
@@ -55,11 +59,25 @@ class UserServiceSkeleton(cloudsecurity_pb2_grpc.UserServiceServicer):
         else:
             return cloudsecurity_pb2.Response(result="Invalid OTP")
 
+def signal_handler(signum, frame):
+    """Handle Ctrl+C gracefully"""
+    print(f"\n🛑 Received interrupt signal. Shutting down gracefully...")
+    if network_controller_proc:
+        print("🛑 Stopping network controller...")
+        network_controller_proc.terminate()
+        network_controller_proc.wait()
+    sys.exit(0)
+
 def run():
+    global network_controller_proc
+    
+    # Set up signal handler for graceful shutdown
+    signal.signal(signal.SIGINT, signal_handler)
+    
     # Start network controller as a subprocess
     print('\n🌐 Starting Network Controller on port 5500...')
     try:
-        proc = subprocess.Popen(
+        network_controller_proc = subprocess.Popen(
             [sys.executable, 'threaded_network_server.py', '--host', '0.0.0.0', '--port', '5500'],
             stdout=None,
             stderr=None
@@ -76,8 +94,8 @@ def run():
             except Exception:
                 if time.time() - start_ts > timeout:
                     print(f'❌ Timed out waiting for network controller to listen on port 5500')
-                    proc.terminate()
-                    proc.wait()
+                    network_controller_proc.terminate()
+                    network_controller_proc.wait()
                     raise RuntimeError('Network controller failed to start')
                 time.sleep(0.5)
 
@@ -92,7 +110,18 @@ def run():
     print('🔐 Starting Auth Service on port 51234 ............', end='')
     server.start()
     print('[OK]')
-    server.wait_for_termination()
+    
+    try:
+        server.wait_for_termination()
+    except KeyboardInterrupt:
+        print(f"\n🛑 Auth service interrupted. Shutting down...")
+    finally:
+        # Clean up network controller
+        if network_controller_proc:
+            print("🛑 Stopping network controller...")
+            network_controller_proc.terminate()
+            network_controller_proc.wait()
+        print("✅ All services stopped.")
 
 if __name__ == '__main__':
     run()
