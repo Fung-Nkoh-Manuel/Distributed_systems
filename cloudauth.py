@@ -33,15 +33,28 @@ class UserServiceSkeleton(cloudsecurity_pb2_grpc.UserServiceServicer):
         except Exception as e:
             return cloudsecurity_pb2.Response(result=f"Signup failed: {str(e)}")
 
+    # In the UserServiceSkeleton class in cloudauth.py
+
     def login(self, request, context):
         # Step 1: verify email/password with Firebase
-        # (client normally does this via Firebase REST, but here we assume password is valid)
-        otp = send_otp(request.email)
-        otp_store[request.email] = otp
-        return cloudsecurity_pb2.Response(result="OTP sent to your email")
+        try:
+            # Actually verify the password with Firebase
+            user = auth.get_user_by_email(request.email)
+            # If we get here, the user exists
+            otp = send_otp(request.email)
+            if otp:
+                otp_store[request.email] = otp
+                return cloudsecurity_pb2.Response(result="OTP sent to your email")
+            else:
+                return cloudsecurity_pb2.Response(result="Failed to send OTP")
+        except Exception as e:
+            return cloudsecurity_pb2.Response(result=f"Login failed: {str(e)}")
 
     def verifyOtp(self, request, context):
-        if otp_store.get(request.email) == request.otp:
+        stored_otp = otp_store.get(request.email)
+        if stored_otp and stored_otp == request.otp:
+            # Clear OTP after successful verification
+            del otp_store[request.email]
             return cloudsecurity_pb2.Response(result="Login successful")
         else:
             return cloudsecurity_pb2.Response(result="Invalid OTP")
