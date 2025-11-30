@@ -15,7 +15,7 @@ def run_signup(login, password, email):
         print(f"Result: {response.result}")
         return response
 
-def start_storage_node(username, network_port=5500):
+def start_storage_node(username, network_port=5500, foreground=False):
     """Spawn a storage node subprocess for the given username.
 
     This launches: python threaded_node_server.py --node-id <username> --network-port <network_port>
@@ -28,8 +28,21 @@ def start_storage_node(username, network_port=5500):
     ]
     try:
         print(f"\n🖥️  Starting storage node '{node_id}' connecting to port {network_port}...")
-        # Start in background; keep stdout/stderr attached so user can debug if needed
-        proc = subprocess.Popen(cmd)
+
+        if foreground:
+            # Run in the same terminal and wait (interactive)
+            print("Running node in foreground. Press Ctrl+C to stop the node and return.")
+            # This will inherit stdin/stdout/stderr so the node's interactive menu is usable
+            completed = subprocess.run(cmd)
+            print(f"Storage node process exited with return code {completed.returncode}")
+            return None
+
+        # Background mode (non-foreground): keep existing behavior (open new console on Windows)
+        creationflags = 0
+        if sys.platform == 'win32' and hasattr(subprocess, 'CREATE_NEW_CONSOLE'):
+            creationflags = subprocess.CREATE_NEW_CONSOLE
+
+        proc = subprocess.Popen(cmd, creationflags=creationflags)
         # give node a moment to start and register
         time.sleep(2)
         print(f"✅ Storage node '{node_id}' started (pid={proc.pid}).")
@@ -52,15 +65,22 @@ def run_login(email, password):
             print(f"Result: {response.result}")
 
 if __name__ == '__main__':
+    # Allow an optional --foreground flag anywhere in the args to run the node in the same terminal
+    foreground = False
+    if '--foreground' in sys.argv:
+        foreground = True
+        # Remove it so positional parsing remains straightforward
+        sys.argv = [a for a in sys.argv if a != '--foreground']
+
     if len(sys.argv) < 2:
-        print("Usage: python client.py <signup|login> <username> <password> <email>")
+        print("Usage: python client.py <signup|login> <username> <password> <email> [--foreground]")
         sys.exit(1)
 
     action = sys.argv[1].lower()
 
     if action == "signup":
         if len(sys.argv) < 5:
-            print("Usage: python client.py signup <username> <password> <email>")
+            print("Usage: python client.py signup <username> <password> <email> [--foreground]")
             sys.exit(1)
         login = sys.argv[2]
         password = sys.argv[3]
@@ -68,7 +88,7 @@ if __name__ == '__main__':
         resp = run_signup(login, password, email)
         # If signup succeeded, spawn a storage node that registers with the network
         if resp and ("success" in resp.result.lower()):
-            start_storage_node(login, network_port=5500)
+            start_storage_node(login, network_port=5500, foreground=foreground)
         else:
             print("Signup did not succeed; node not started.")
 
