@@ -5,6 +5,7 @@ import cloudsecurity_pb2_grpc
 import subprocess
 import time
 import os
+import signal
 
 def run_signup(login, password, email):
     """Signup a new user via Firebase (server handles creation)."""
@@ -38,9 +39,13 @@ def start_storage_node(username, network_port=5500, foreground=False):
 
         if foreground:
             print("Running node in foreground. Press Ctrl+C to stop the node and return.")
-            completed = subprocess.run(cmd)
-            print(f"Storage node process exited with return code {completed.returncode}")
-            return None
+            try:
+                completed = subprocess.run(cmd)
+                print(f"Storage node process exited with return code {completed.returncode}")
+                return None
+            except KeyboardInterrupt:
+                print(f"\n🛑 Stopping storage node '{node_id}'...")
+                return None
 
         # Background mode
         creationflags = 0
@@ -82,7 +87,7 @@ def run_login(username, password, email, foreground=False):
             print(f"❌ Login failed: {response.result}")
             return False
 
-if __name__ == '__main__':
+def main():
     # Handle --foreground flag
     foreground = False
     if '--foreground' in sys.argv:
@@ -121,3 +126,10 @@ if __name__ == '__main__':
     else:
         print("Invalid action. Use 'signup' or 'login'.")
         sys.exit(1)
+
+if __name__ == '__main__':
+    try:
+        main()
+    except KeyboardInterrupt:
+        print(f"\n🛑 Client stopped by user.")
+        sys.exit(0)
