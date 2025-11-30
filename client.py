@@ -17,16 +17,13 @@ def run_signup(login, password, email):
         return response
 
 def start_storage_node(username, network_port=5500, foreground=False):
-    """Spawn a storage node subprocess for the given username.
-    
-    This will use existing user folder if it exists.
-    """
+    """Spawn a storage node subprocess for the given username."""
     node_id = username
     cmd = [
         sys.executable, 'threaded_node_server.py',
         '--node-id', node_id,
         '--network-port', str(network_port),
-        '--use-existing-folder'  # New flag to use existing folder
+        '--use-existing-folder'
     ]
     try:
         print(f"\n🖥️  Starting storage node '{node_id}' connecting to port {network_port}...")
@@ -40,7 +37,6 @@ def start_storage_node(username, network_port=5500, foreground=False):
             print(f"📁 Creating new storage folder: {user_folder}")
 
         if foreground:
-            # Run in the same terminal and wait (interactive)
             print("Running node in foreground. Press Ctrl+C to stop the node and return.")
             completed = subprocess.run(cmd)
             print(f"Storage node process exited with return code {completed.returncode}")
@@ -59,8 +55,8 @@ def start_storage_node(username, network_port=5500, foreground=False):
         print(f"❌ Failed to start storage node: {e}")
         return None
 
-def run_login(email, password, foreground=False):
-    """Login with email/password and OTP verification"""
+def run_login(username, password, email, foreground=False):
+    """Login with username, password and OTP verification"""
     with grpc.insecure_channel('localhost:51234') as channel:
         stub = cloudsecurity_pb2_grpc.UserServiceStub(channel)
 
@@ -76,8 +72,6 @@ def run_login(email, password, foreground=False):
 
             # Step 3: If OTP is correct, start the storage node
             if "successful" in response.result.lower():
-                # Extract username from email (or use email as username)
-                username = email.split('@')[0]  # Use email prefix as username
                 print(f"✅ Login successful! Starting storage node for user: {username}")
                 start_storage_node(username, network_port=5500, foreground=foreground)
                 return True
@@ -97,7 +91,7 @@ if __name__ == '__main__':
 
     if len(sys.argv) < 2:
         print("Usage: python client.py <signup|login> <username> <password> <email> [--foreground]")
-        print("       python client.py login <password> <email> [--foreground]")
+        print("       python client.py login <username> <password> <email> [--foreground]")
         sys.exit(1)
 
     action = sys.argv[1].lower()
@@ -106,22 +100,23 @@ if __name__ == '__main__':
         if len(sys.argv) < 5:
             print("Usage: python client.py signup <username> <password> <email> [--foreground]")
             sys.exit(1)
-        login = sys.argv[2]
+        username = sys.argv[2]
         password = sys.argv[3]
         email = sys.argv[4]
-        resp = run_signup(login, password, email)
+        resp = run_signup(username, password, email)
         if resp and ("success" in resp.result.lower()):
-            start_storage_node(login, network_port=5500, foreground=foreground)
+            start_storage_node(username, network_port=5500, foreground=foreground)
         else:
             print("Signup did not succeed; node not started.")
 
     elif action == "login":
-        if len(sys.argv) < 4:
-            print("Usage: python client.py login <password> <email> [--foreground]")
+        if len(sys.argv) < 5:
+            print("Usage: python client.py login <username> <password> <email> [--foreground]")
             sys.exit(1)
-        password = sys.argv[2]
-        email = sys.argv[3]
-        run_login(email, password, foreground)
+        username = sys.argv[2]
+        password = sys.argv[3]
+        email = sys.argv[4]
+        run_login(username, password, email, foreground)
 
     else:
         print("Invalid action. Use 'signup' or 'login'.")

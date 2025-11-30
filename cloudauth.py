@@ -2,7 +2,7 @@ import grpc
 from concurrent import futures
 import cloudsecurity_pb2
 import cloudsecurity_pb2_grpc
-from utils import send_otp   # your email OTP sender
+from utils import send_otp
 import threading
 import subprocess
 import time
@@ -33,14 +33,11 @@ class UserServiceSkeleton(cloudsecurity_pb2_grpc.UserServiceServicer):
         except Exception as e:
             return cloudsecurity_pb2.Response(result=f"Signup failed: {str(e)}")
 
-    # In the UserServiceSkeleton class in cloudauth.py
-
     def login(self, request, context):
-        # Step 1: verify email/password with Firebase
         try:
-            # Actually verify the password with Firebase
+            # Get user by email to check if they exist
             user = auth.get_user_by_email(request.email)
-            # If we get here, the user exists
+            
             otp = send_otp(request.email)
             if otp:
                 otp_store[request.email] = otp
@@ -51,8 +48,7 @@ class UserServiceSkeleton(cloudsecurity_pb2_grpc.UserServiceServicer):
             return cloudsecurity_pb2.Response(result=f"Login failed: {str(e)}")
 
     def verifyOtp(self, request, context):
-        stored_otp = otp_store.get(request.email)
-        if stored_otp and stored_otp == request.otp:
+        if otp_store.get(request.email) == request.otp:
             # Clear OTP after successful verification
             del otp_store[request.email]
             return cloudsecurity_pb2.Response(result="Login successful")
@@ -60,12 +56,12 @@ class UserServiceSkeleton(cloudsecurity_pb2_grpc.UserServiceServicer):
             return cloudsecurity_pb2.Response(result="Invalid OTP")
 
 def run():
-    # Start network controller as a subprocess (use same Python executable)
+    # Start network controller as a subprocess
     print('\n🌐 Starting Network Controller on port 5500...')
     try:
         proc = subprocess.Popen(
             [sys.executable, 'threaded_network_server.py', '--host', '0.0.0.0', '--port', '5500'],
-            stdout=None,  # inherit parent's stdout/stderr so user sees logs
+            stdout=None,
             stderr=None
         )
 
