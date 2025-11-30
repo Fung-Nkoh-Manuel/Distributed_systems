@@ -21,7 +21,7 @@ class EnhancedStorageNode:
         self.storage = storage  # GB
         self.bandwidth = bandwidth  # Mbps
 
-        # Initialize files dictionary FIRST - before any method calls
+        # Initialize files dictionary FIRST
         self.files: Dict[str, dict] = {}
         
         # Create storage directory with absolute path
@@ -41,12 +41,10 @@ class EnhancedStorageNode:
             os.makedirs(self.storage_path, exist_ok=True)
             print(f"📁 Created new storage directory: {self.storage_path}")
         
-        self.files: Dict[str, dict] = {}
         self.running = False
         self.status = "online"
         self.server_socket = None
-        self.actual_port = None
-        
+        self.actual_port = None       
     def _scan_existing_files(self):
         """Scan existing files in storage directory and register them"""
         if not os.path.exists(self.storage_path):
