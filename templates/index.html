@@ -1,0 +1,841 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Cloud Storage Controller Dashboard</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+        color: #e2e8f0;
+        min-height: 100vh;
+        padding: 2rem;
+      }
+
+      .container {
+        max-width: 1400px;
+        margin: 0 auto;
+      }
+
+      header {
+        margin-bottom: 2rem;
+      }
+
+      h1 {
+        font-size: 2.5rem;
+        margin-bottom: 0.5rem;
+        color: #60a5fa;
+      }
+
+      .subtitle {
+        color: #94a3b8;
+        font-size: 1rem;
+      }
+
+      /* Stats Grid */
+      .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+        gap: 1.5rem;
+        margin-bottom: 2rem;
+      }
+
+      .stat-card {
+        background: #1e293b;
+        border: 1px solid #334155;
+        border-radius: 8px;
+        padding: 1.5rem;
+        transition: all 0.3s ease;
+      }
+
+      .stat-card:hover {
+        border-color: #3b82f6;
+        box-shadow: 0 0 20px rgba(59, 130, 246, 0.2);
+      }
+
+      .stat-label {
+        color: #94a3b8;
+        font-size: 0.9rem;
+        margin-bottom: 0.5rem;
+      }
+
+      .stat-value {
+        font-size: 2rem;
+        font-weight: bold;
+        color: #60a5fa;
+      }
+
+      .stat-secondary {
+        font-size: 0.85rem;
+        color: #64748b;
+        margin-top: 0.5rem;
+      }
+
+      /* Sections */
+      .section {
+        margin-bottom: 2rem;
+      }
+
+      .section-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1.5rem;
+      }
+
+      .section h2 {
+        font-size: 1.8rem;
+        color: #f1f5f9;
+      }
+
+      .btn {
+        padding: 0.5rem 1rem;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 0.95rem;
+        transition: all 0.3s ease;
+        font-weight: 500;
+      }
+
+      .btn-primary {
+        background: #3b82f6;
+        color: white;
+      }
+
+      .btn-primary:hover {
+        background: #2563eb;
+      }
+
+      .btn-success {
+        background: #10b981;
+        color: white;
+      }
+
+      .btn-success:hover {
+        background: #059669;
+      }
+
+      .btn-danger {
+        background: #ef4444;
+        color: white;
+      }
+
+      .btn-danger:hover {
+        background: #dc2626;
+      }
+
+      .btn-warning {
+        background: #f59e0b;
+        color: white;
+      }
+
+      .btn-warning:hover {
+        background: #d97706;
+      }
+
+      .btn-sm {
+        padding: 0.4rem 0.8rem;
+        font-size: 0.85rem;
+      }
+
+      /* Form */
+      .form-group {
+        margin-bottom: 1rem;
+      }
+
+      .form-hidden {
+        display: none;
+      }
+
+      .form-visible {
+        background: #1e293b;
+        border: 1px solid #334155;
+        border-radius: 8px;
+        padding: 1.5rem;
+        margin-bottom: 1.5rem;
+      }
+
+      .form-row {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 1rem;
+        margin-bottom: 1rem;
+      }
+
+      label {
+        display: block;
+        margin-bottom: 0.5rem;
+        color: #cbd5e1;
+        font-size: 0.9rem;
+      }
+
+      input {
+        width: 100%;
+        padding: 0.6rem;
+        background: #0f172a;
+        border: 1px solid #334155;
+        border-radius: 4px;
+        color: #e2e8f0;
+        font-size: 0.95rem;
+      }
+
+      input:focus {
+        outline: none;
+        border-color: #3b82f6;
+        box-shadow: 0 0 10px rgba(59, 130, 246, 0.2);
+      }
+
+      .button-group {
+        display: flex;
+        gap: 0.5rem;
+      }
+
+      /* Nodes Grid */
+      .nodes-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+        gap: 1.5rem;
+      }
+
+      .node-card {
+        background: #1e293b;
+        border: 2px solid #334155;
+        border-radius: 8px;
+        padding: 1.5rem;
+        transition: all 0.3s ease;
+      }
+
+      .node-card.active {
+        border-color: #10b981;
+        box-shadow: 0 0 15px rgba(16, 185, 129, 0.2);
+      }
+
+      .node-card.inactive {
+        border-color: #ef4444;
+        box-shadow: 0 0 15px rgba(239, 68, 68, 0.2);
+        opacity: 0.7;
+      }
+
+      .node-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1rem;
+        padding-bottom: 1rem;
+        border-bottom: 1px solid #334155;
+      }
+
+      .node-title {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+      }
+
+      .status-dot {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+      }
+
+      .status-dot.active {
+        background: #10b981;
+        box-shadow: 0 0 8px rgba(16, 185, 129, 0.5);
+      }
+
+      .status-dot.inactive {
+        background: #ef4444;
+      }
+
+      .node-id {
+        font-size: 1.4rem;
+        font-weight: bold;
+        color: #60a5fa;
+      }
+
+      .status-badge {
+        padding: 0.3rem 0.75rem;
+        border-radius: 12px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        text-transform: uppercase;
+      }
+
+      .status-badge.active {
+        background: rgba(16, 185, 129, 0.2);
+        color: #10b981;
+      }
+
+      .status-badge.inactive {
+        background: rgba(239, 68, 68, 0.2);
+        color: #ef4444;
+      }
+
+      .node-actions {
+        display: flex;
+        gap: 0.5rem;
+      }
+
+      .node-resources {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 1rem;
+        margin-bottom: 1rem;
+      }
+
+      .resource-item {
+        background: #0f172a;
+        padding: 0.75rem;
+        border-radius: 6px;
+      }
+
+      .resource-label {
+        font-size: 0.8rem;
+        color: #94a3b8;
+        margin-bottom: 0.25rem;
+      }
+
+      .resource-value {
+        font-size: 1.2rem;
+        font-weight: bold;
+        color: #60a5fa;
+      }
+
+      /* Storage Bar */
+      .storage-section {
+        margin-top: 1rem;
+      }
+
+      .storage-header {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 0.5rem;
+        font-size: 0.85rem;
+      }
+
+      .storage-header-label {
+        color: #94a3b8;
+      }
+
+      .storage-header-pct {
+        color: #cbd5e1;
+        font-weight: 600;
+      }
+
+      .storage-bar {
+        width: 100%;
+        height: 8px;
+        background: #0f172a;
+        border-radius: 4px;
+        overflow: hidden;
+        margin-bottom: 0.3rem;
+      }
+
+      .storage-fill {
+        height: 100%;
+        background: linear-gradient(90deg, #3b82f6, #60a5fa);
+        border-radius: 4px;
+        transition: width 0.3s ease;
+      }
+
+      .storage-fill.warning {
+        background: linear-gradient(90deg, #f59e0b, #fbbf24);
+      }
+
+      .storage-fill.danger {
+        background: linear-gradient(90deg, #ef4444, #f87171);
+      }
+
+      .storage-info {
+        font-size: 0.75rem;
+        color: #64748b;
+      }
+
+      /* Files Table */
+      .files-table-wrapper {
+        background: #1e293b;
+        border: 1px solid #334155;
+        border-radius: 8px;
+        overflow: hidden;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+
+      thead {
+        background: #0f172a;
+      }
+
+      th {
+        padding: 1rem;
+        text-align: left;
+        color: #94a3b8;
+        font-weight: 600;
+        font-size: 0.9rem;
+        border-bottom: 1px solid #334155;
+      }
+
+      td {
+        padding: 1rem;
+        border-bottom: 1px solid #334155;
+      }
+
+      tbody tr:hover {
+        background: #0f172a;
+      }
+
+      .status-available {
+        background: rgba(16, 185, 129, 0.2);
+        color: #10b981;
+        padding: 0.3rem 0.6rem;
+        border-radius: 4px;
+        font-size: 0.85rem;
+        font-weight: 600;
+      }
+
+      .status-uploading {
+        background: rgba(245, 158, 11, 0.2);
+        color: #f59e0b;
+        padding: 0.3rem 0.6rem;
+        border-radius: 4px;
+        font-size: 0.85rem;
+        font-weight: 600;
+      }
+
+      .loading {
+        text-align: center;
+        padding: 2rem;
+        color: #94a3b8;
+      }
+
+      .spinner {
+        border: 2px solid #334155;
+        border-top: 2px solid #3b82f6;
+        border-radius: 50%;
+        width: 30px;
+        height: 30px;
+        animation: spin 1s linear infinite;
+        margin: 0 auto 0.5rem;
+      }
+
+      @keyframes spin {
+        0% {
+          transform: rotate(0deg);
+        }
+        100% {
+          transform: rotate(360deg);
+        }
+      }
+
+      /* Responsive */
+      @media (max-width: 768px) {
+        h1 {
+          font-size: 1.8rem;
+        }
+
+        .stats-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .nodes-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .form-row {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <div
+          style="
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 1rem;
+          "
+        >
+          <div>
+            <h1>☁️ Cloud Storage Controller</h1>
+            <p class="subtitle">
+              Real-time distributed network monitoring and management
+            </p>
+          </div>
+          <div>
+            <a href="/logout" class="btn btn-danger">Logout</a>
+          </div>
+        </div>
+      </header>
+
+      <!-- Stats Grid -->
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-label">Active Nodes</div>
+          <div class="stat-value">
+            <span id="activeNodes">-</span>/<span id="totalNodes">-</span>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Storage Usage</div>
+          <div class="stat-value"><span id="storageUtil">-</span>%</div>
+          <div class="stat-secondary" id="storageDetails">- GB / - GB</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Active Transfers</div>
+          <div class="stat-value" id="totalTransfers">-</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Total Files</div>
+          <div class="stat-value" id="totalFiles">-</div>
+        </div>
+      </div>
+
+      <!-- Nodes Section -->
+      <section class="section">
+        <div class="section-header">
+          <h2>Network Nodes</h2>
+          <button class="btn btn-primary" onclick="toggleNodeForm()">
+            + Add Node
+          </button>
+        </div>
+
+        <!-- New Node Form -->
+        <div id="nodeForm" class="form-hidden">
+          <div class="form-visible">
+            <div class="form-row">
+              <div class="form-group">
+                <label>Node ID</label>
+                <input type="text" id="newNodeId" placeholder="N6" value="N6" />
+              </div>
+              <div class="form-group">
+                <label>CPU Cores</label>
+                <input type="number" id="newNodeCpu" value="4" min="1" />
+              </div>
+              <div class="form-group">
+                <label>Memory (GB)</label>
+                <input type="number" id="newNodeMemory" value="16" min="1" />
+              </div>
+              <div class="form-group">
+                <label>Storage (GB)</label>
+                <input
+                  type="number"
+                  id="newNodeStorage"
+                  value="1000"
+                  min="10"
+                />
+              </div>
+              <div class="form-group">
+                <label>Bandwidth (Mbps)</label>
+                <input
+                  type="number"
+                  id="newNodeBandwidth"
+                  value="1000"
+                  min="10"
+                />
+              </div>
+            </div>
+            <div class="button-group">
+              <button class="btn btn-success" onclick="createNode()">
+                Create Node
+              </button>
+              <button class="btn btn-danger" onclick="toggleNodeForm()">
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Nodes Grid -->
+        <div class="nodes-grid" id="nodesContainer">
+          <div class="loading">
+            <div class="spinner"></div>
+            Loading nodes...
+          </div>
+        </div>
+      </section>
+
+      <!-- Files Section -->
+      <section class="section">
+        <div class="section-header">
+          <h2>Files & Replicas</h2>
+        </div>
+        <div class="files-table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>File Name</th>
+                <th>Size (MB)</th>
+                <th>Owner</th>
+                <th>Replicas</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="filesContainer">
+              <tr>
+                <td colspan="5" style="text-align: center">Loading files...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+
+    <script>
+      const API_BASE = "/api";
+
+      function toggleNodeForm() {
+        const form = document.getElementById("nodeForm");
+        form.classList.toggle("form-hidden");
+        form.classList.toggle("form-visible");
+      }
+
+      async function fetchStats() {
+        try {
+          const response = await fetch(`${API_BASE}/stats`);
+          const data = await response.json();
+
+          document.getElementById("activeNodes").textContent =
+            data.active_nodes;
+          document.getElementById("totalNodes").textContent = data.total_nodes;
+          document.getElementById("storageUtil").textContent =
+            data.storage_utilization;
+          document.getElementById("storageDetails").textContent = `${(
+            data.used_storage /
+            (1024 * 1024 * 1024)
+          ).toFixed(1)} GB / ${(
+            data.total_storage /
+            (1024 * 1024 * 1024)
+          ).toFixed(1)} GB`;
+          document.getElementById("totalTransfers").textContent =
+            data.total_transfers;
+          document.getElementById("totalFiles").textContent = data.total_files;
+        } catch (error) {
+          console.error("Error fetching stats:", error);
+        }
+      }
+
+      async function fetchNodes() {
+        try {
+          const response = await fetch(`${API_BASE}/nodes`);
+          const nodesList = await response.json();
+
+          const container = document.getElementById("nodesContainer");
+          container.innerHTML = "";
+
+          nodesList.forEach((node) => {
+            // Compute usage client-side with higher precision to reflect small files
+            const usedBytes = Number(node.used_storage) || 0;
+            const capacityGB = Number(node.storage) || 0; // in GB from controller
+            const capacityBytes = capacityGB * 1024 * 1024 * 1024;
+            const pctVal =
+              capacityBytes > 0 ? (usedBytes / capacityBytes) * 100 : 0;
+            const pctText = pctVal.toFixed(2);
+            const barWidth = Math.max(pctVal, usedBytes > 0 ? 0.1 : 0); // ensure tiny non-zero width when any usage
+            const usedGBText = (usedBytes / (1024 * 1024 * 1024)).toFixed(2);
+
+            const storageClass =
+              pctVal < 50 ? "" : pctVal < 80 ? "warning" : "danger";
+            const nodeHtml = `
+                        <div class="node-card ${node.status}">
+                            <div class="node-header">
+                                <div class="node-title">
+                                    <div class="status-dot ${
+                                      node.status
+                                    }"></div>
+                                    <span class="node-id">${node.id}</span>
+                                    <span class="status-badge ${node.status}">${
+              node.status
+            }</span>
+                                </div>
+                                <div class="node-actions">
+                                    <button class="btn btn-sm ${
+                                      node.status === "active"
+                                        ? "btn-warning"
+                                        : "btn-success"
+                                    }" 
+                                            onclick="toggleNodeStatus('${
+                                              node.id
+                                            }')">
+                                        ${
+                                          node.status === "active"
+                                            ? "Offline"
+                                            : "Online"
+                                        }
+                                    </button>
+                                    <button class="btn btn-sm btn-danger" onclick="deleteNode('${
+                                      node.id
+                                    }')">Delete</button>
+                                </div>
+                            </div>
+                            <div class="node-resources">
+                                <div class="resource-item">
+                                    <div class="resource-label">CPU Cores</div>
+                                    <div class="resource-value">${
+                                      node.cpu
+                                    }</div>
+                                </div>
+                                <div class="resource-item">
+                                    <div class="resource-label">Memory</div>
+                                    <div class="resource-value">${
+                                      node.memory
+                                    } GB</div>
+                                </div>
+                                <div class="resource-item">
+                                    <div class="resource-label">Transfers</div>
+                                    <div class="resource-value">${
+                                      node.active_transfers
+                                    }</div>
+                                </div>
+                                <div class="resource-item">
+                                    <div class="resource-label">Bandwidth</div>
+                                    <div class="resource-value">${
+                                      node.bandwidth
+                                    } Mbps</div>
+                                </div>
+                            </div>
+                            <div class="storage-section">
+                                <div class="storage-header">
+                                    <span class="storage-header-label">Storage Usage</span>
+                                    <span class="storage-header-pct">${pctText}%</span>
+                                </div>
+                                <div class="storage-bar">
+                                    <div class="storage-fill ${storageClass}" style="width: ${barWidth}%"></div>
+                                </div>
+                                <div class="storage-info">${usedGBText} / ${capacityGB} GB</div>
+                            </div>
+                        </div>
+                    `;
+            container.innerHTML += nodeHtml;
+          });
+        } catch (error) {
+          console.error("Error fetching nodes:", error);
+          document.getElementById("nodesContainer").innerHTML =
+            '<div class="loading">Error loading nodes</div>';
+        }
+      }
+
+      async function fetchFiles() {
+        try {
+          const response = await fetch(`${API_BASE}/files`);
+          const filesList = await response.json();
+
+          const container = document.getElementById("filesContainer");
+          container.innerHTML = "";
+
+          filesList.forEach((file) => {
+            const statusClass =
+              file.status === "available"
+                ? "status-available"
+                : "status-uploading";
+            const fileHtml = `
+                        <tr>
+                            <td>${file.name}</td>
+                            <td>${file.size}</td>
+                            <td>${file.owner}</td>
+                            <td>${file.replicas}</td>
+                            <td><span class="${statusClass}">${file.status}</span></td>
+                        </tr>
+                    `;
+            container.innerHTML += fileHtml;
+          });
+        } catch (error) {
+          console.error("Error fetching files:", error);
+        }
+      }
+
+      async function createNode() {
+        const nodeId = document.getElementById("newNodeId").value;
+        const cpu = parseInt(document.getElementById("newNodeCpu").value);
+        const memory = parseInt(document.getElementById("newNodeMemory").value);
+        const storage = parseInt(
+          document.getElementById("newNodeStorage").value
+        );
+        const bandwidth = parseInt(
+          document.getElementById("newNodeBandwidth").value
+        );
+
+        if (!nodeId) {
+          alert("Please enter a Node ID");
+          return;
+        }
+
+        try {
+          const response = await fetch(`${API_BASE}/nodes`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ nodeId, cpu, memory, storage, bandwidth }),
+          });
+
+          if (response.ok) {
+            toggleNodeForm();
+            document.getElementById("newNodeId").value = "";
+            fetchNodes();
+            fetchStats();
+          } else {
+            const error = await response.json();
+            alert("Error: " + error.message);
+          }
+        } catch (error) {
+          console.error("Error creating node:", error);
+          alert("Error creating node");
+        }
+      }
+
+      async function toggleNodeStatus(nodeId) {
+        try {
+          const response = await fetch(`${API_BASE}/nodes/${nodeId}/toggle`, {
+            method: "PUT",
+          });
+
+          if (response.ok) {
+            fetchNodes();
+            fetchStats();
+          }
+        } catch (error) {
+          console.error("Error toggling node status:", error);
+        }
+      }
+
+      async function deleteNode(nodeId) {
+        if (!confirm(`Are you sure you want to delete node ${nodeId}?`)) {
+          return;
+        }
+
+        try {
+          const response = await fetch(`${API_BASE}/nodes/${nodeId}`, {
+            method: "DELETE",
+          });
+
+          if (response.ok) {
+            fetchNodes();
+            fetchStats();
+          }
+        } catch (error) {
+          console.error("Error deleting node:", error);
+        }
+      }
+
+      // Initial load and periodic refresh
+      function refreshData() {
+        fetchStats();
+        fetchNodes();
+        fetchFiles();
+      }
+
+      refreshData();
+      setInterval(refreshData, 3000); // Refresh every 3 seconds
+    </script>
+  </body>
+</html>

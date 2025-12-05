@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cloud Storage Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+
+        .navbar {
+            background: rgba(255, 255, 255, 0.95);
+            padding: 20px 40px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .navbar-brand {
+            font-size: 24px;
+            font-weight: bold;
+            color: #667eea;
+        }
+
+        .navbar-menu {
+            display: flex;
+            gap: 20px;
+            align-items: center;
+        }
+
+        .profile-info {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .profile-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: #667eea;
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+        }
+
+        .logout-btn {
+            padding: 8px 16px;
+            background: #e74c3c;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background 0.3s;
+            text-decoration: none;
+        }
+
+        .logout-btn:hover {
+            background: #c0392b;
+        }
+
+        .container {
+            display: grid;
+            grid-template-columns: 300px 1fr;
+            gap: 20px;
+            padding: 40px;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .sidebar {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 5px 20px rgba(0, 0, 0, 0.1);
+            height: fit-content;
+        }
+
+        .storage-card {
+            margin-bottom: 30px;
+        }
+
+        .storage-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: #666;
+            margin-bottom: 15px;
+            text-transform: uppercase;
+        }
+
+        .storage-bar {
+            height: 10px;
+            background: #ecf0f1;
+            border-radius: 5px;
+            overflow: hidden;
+            margin-bottom: 10px;
+        }
+
+        .storage-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            border-radius: 5px;
+            transition: width 0.3s ease;
+        }
+
+        .storage-stats {
+            font-size: 13px;
+            color: #666;
+        }
+
+        .storage-stats strong {
+            color: #333;
+        }
+
+        .main-content {
+            background: white;
+            border-radius: 10px;
+            padding: 30px;
+            box-shadow: 0 5px 20px rgba(0, 0, 0, 0.1);
+        }
+
+        .content-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+            border-bottom: 2px solid #f0f0f0;
+            padding-bottom: 20px;
+        }
+
+        .content-title {
+            font-size: 28px;
+            color: #333;
+            font-weight: 600;
+        }
+
+        .upload-btn {
+            padding: 12px 24px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: transform 0.2s;
+        }
+
+        .upload-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .upload-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .file-list {
+            display: grid;
+            gap: 15px;
+        }
+
+        .file-item {
+            display: flex;
+            align-items: center;
+            padding: 15px;
+            background: #f9f9f9;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+            transition: all 0.3s;
+        }
+
+        .file-item:hover {
+            background: #f0f0f0;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+        }
+
+        .file-icon {
+            font-size: 30px;
+            margin-right: 15px;
+        }
+
+        .file-info {
+            flex: 1;
+        }
+
+        .file-name {
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 5px;
+            word-break: break-all;
+        }
+
+        .file-meta {
+            font-size: 12px;
+            color: #999;
+        }
+
+        .file-actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        .file-btn {
+            padding: 6px 12px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.3s;
+        }
+
+        .download-btn {
+            background: #27ae60;
+            color: white;
+        }
+
+        .download-btn:hover {
+            background: #229954;
+        }
+
+        .delete-btn {
+            background: #e74c3c;
+            color: white;
+        }
+
+        .delete-btn:hover {
+            background: #c0392b;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #999;
+        }
+
+        .empty-state-icon {
+            font-size: 60px;
+            margin-bottom: 20px;
+        }
+
+        #fileInput {
+            display: none;
+        }
+
+        .upload-progress {
+            display: none;
+            margin-top: 20px;
+            padding: 20px;
+            background: #f0f0f0;
+            border-radius: 8px;
+        }
+
+        .upload-progress.show {
+            display: block;
+        }
+
+        .progress-bar {
+            height: 8px;
+            background: #ddd;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-top: 10px;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            width: 0%;
+            transition: width 0.3s;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid #f3f3f3;
+            border-top: 2px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 8px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .alert {
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: none;
+        }
+
+        .alert.show {
+            display: block;
+        }
+
+        .alert-success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .alert-error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                grid-template-columns: 1fr;
+            }
+
+            .navbar {
+                flex-direction: column;
+                gap: 15px;
+            }
+
+            .content-header {
+                flex-direction: column;
+                gap: 15px;
+                align-items: flex-start;
+            }
+
+            .file-item {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            .file-actions {
+                width: 100%;
+                margin-top: 10px;
+            }
+
+            .file-btn {
+                flex: 1;
+            }
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar">
+        <div class="navbar-brand">☁️ CloudVault</div>
+        <div class="navbar-menu">
+            <div class="profile-info">
+                <span id="userEmail">user@example.com</span>
+                <div class="profile-avatar" id="profileAvatar">U</div>
+            </div>
+            <a href="/logout" class="logout-btn">Logout</a>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="sidebar">
+            <div class="storage-card">
+                <div class="storage-title">Storage Usage</div>
+                <div class="storage-bar">
+                    <div class="storage-fill" id="storageBar"></div>
+                </div>
+                <div class="storage-stats">
+                    <div><strong id="usedStorage">0</strong> GB used</div>
+                    <div>of <strong id="quotaStorage">100</strong> GB</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="main-content">
+            <div id="alert" class="alert"></div>
+
+            <div class="content-header">
+                <h1 class="content-title">My Files</h1>
+                <button class="upload-btn" onclick="triggerFileInput()">+ Upload File</button>
+            </div>
+
+            <input type="file" id="fileInput" onchange="handleFileUpload(event)">
+
+            <div class="upload-progress" id="uploadProgress">
+                <div><span class="spinner"></span><span id="uploadStatus">Uploading...</span></div>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progressFill"></div>
+                </div>
+            </div>
+
+            <div class="file-list" id="fileList">
+                <div class="empty-state">
+                    <div class="empty-state-icon">📁</div>
+                    <p>No files yet. Upload your first file to get started!</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function loadFiles() {
+            try {
+                const response = await fetch('/api/files/list');
+                const files = await response.json();
+
+                const fileList = document.getElementById('fileList');
+                
+                if (files.length === 0) {
+                    fileList.innerHTML = `
+                        <div class="empty-state">
+                            <div class="empty-state-icon">📁</div>
+                            <p>No files yet. Upload your first file to get started!</p>
+                        </div>
+                    `;
+                } else {
+                    fileList.innerHTML = files.map(file => `
+                        <div class="file-item">
+                            <div class="file-icon">📄</div>
+                            <div class="file-info">
+                                <div class="file-name">${file.name}</div>
+                                <div class="file-meta">
+                                    ${file.size_mb.toFixed(2)} MB • 
+                                    ${new Date(file.created_at).toLocaleDateString()}
+                                </div>
+                            </div>
+                            <div class="file-actions">
+                                <button class="file-btn download-btn" onclick="downloadFile('${file.id}', '${file.name}')">Download</button>
+                                <button class="file-btn delete-btn" onclick="deleteFile('${file.id}')">Delete</button>
+                            </div>
+                        </div>
+                    `).join('');
+                }
+            } catch (error) {
+                console.error('Error loading files:', error);
+            }
+        }
+
+        async function loadStorageInfo() {
+            try {
+                const response = await fetch('/api/storage/info');
+                const data = await response.json();
+
+                document.getElementById('usedStorage').textContent = data.used_gb.toFixed(2);
+                document.getElementById('quotaStorage').textContent = data.quota_gb.toFixed(0);
+                document.getElementById('storageBar').style.width = data.used_percent + '%';
+            } catch (error) {
+                console.error('Error loading storage info:', error);
+            }
+        }
+
+        async function loadProfile() {
+            try {
+                const response = await fetch('/api/profile');
+                const profile = await response.json();
+
+                document.getElementById('userEmail').textContent = profile.email;
+                const initial = profile.email.charAt(0).toUpperCase();
+                document.getElementById('profileAvatar').textContent = initial;
+            } catch (error) {
+                console.error('Error loading profile:', error);
+            }
+        }
+
+        function triggerFileInput() {
+            document.getElementById('fileInput').click();
+        }
+
+        async function handleFileUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            const uploadProgress = document.getElementById('uploadProgress');
+            const progressFill = document.getElementById('progressFill');
+            const uploadStatus = document.getElementById('uploadStatus');
+
+            uploadProgress.classList.add('show');
+            uploadStatus.textContent = `Uploading ${file.name}...`;
+            progressFill.style.width = '0%';
+
+            try {
+                const response = await fetch('/api/files/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    progressFill.style.width = '100%';
+                    uploadStatus.textContent = `Successfully uploaded ${file.name}`;
+                    showAlert(`File uploaded successfully!`, 'success');
+                    
+                    setTimeout(() => {
+                        uploadProgress.classList.remove('show');
+                        loadFiles();
+                        loadStorageInfo();
+                    }, 1500);
+                } else {
+                    showAlert(`Upload failed: ${data.message}`, 'error');
+                    uploadProgress.classList.remove('show');
+                }
+            } catch (error) {
+                showAlert(`Upload error: ${error.message}`, 'error');
+                uploadProgress.classList.remove('show');
+            }
+
+            event.target.value = '';
+        }
+
+        async function downloadFile(fileId, fileName) {
+            try {
+                const response = await fetch(`/api/files/${fileId}/download`);
+                
+                if (!response.ok) {
+                    showAlert('Download failed', 'error');
+                    return;
+                }
+
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = fileName;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+                
+                showAlert('Download started', 'success');
+            } catch (error) {
+                showAlert(`Download error: ${error.message}`, 'error');
+            }
+        }
+
+        async function deleteFile(fileId) {
+            if (!confirm('Remove file from your account?')) return;
+
+            try {
+                const response = await fetch(`/api/files/${fileId}`, { method: 'DELETE' });
+                const data = await response.json();
+
+                if (data.success) {
+                    showAlert(`File removed. Freed ${data.freed_space.toFixed(2)} GB storage.`, 'success');
+                    loadFiles();
+                    loadStorageInfo();
+                } else {
+                    showAlert(`Delete failed: ${data.message}`, 'error');
+                }
+            } catch (error) {
+                showAlert(`Delete error: ${error.message}`, 'error');
+            }
+        }
+
+        function showAlert(message, type) {
+            const alert = document.getElementById('alert');
+            alert.textContent = message;
+            alert.className = `alert show alert-${type}`;
+            
+            setTimeout(() => {
+                alert.classList.remove('show');
+            }, 4000);
+        }
+
+        // Load data on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            loadProfile();
+            loadStorageInfo();
+            loadFiles();
+
+            // Refresh every 5 seconds
+            setInterval(() => {
+                loadStorageInfo();
+                loadFiles();
+            }, 5000);
+        });
+    </script>
+</body>
+</html>
